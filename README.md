@@ -159,7 +159,6 @@ npx hardhat run scripts/deploy.js --network base
 ## Technical Documentation
 
 For detailed technical information:
-- [Pythagorean Coordinates Math](docs/PYTHAGOREAN_COORDINATES.md)
 - Contract implements UUPS upgradeable pattern
 - Uses OpenZeppelin security libraries
 
