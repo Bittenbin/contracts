@@ -1,0 +1,44 @@
+{
+  "name": "pmm-smart-contract",
+  "version": "1.0.0",
+  "description": "Pythagorean Market Maker Smart Contracts",
+  "main": "index.js",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "test:platform": "hardhat test test/PlatformMarkets.test.js",
+    "test:validation": "hardhat test --grep 'Coordinate Validation'",
+    "deploy": "hardhat run scripts/deploy.js --network localhost",
+    "node": "hardhat node --hostname 0.0.0.0",
+    "check-balance": "hardhat run scripts/check-balance.js --network localhost"
+  },
+  "keywords": ["blockchain", "ethereum", "smart-contracts", "reputation", "pythagorean"],
+  "author": "rtedwardchen",
+  "license": "MIT",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-chai-matchers": "^2.0.2",
+    "@nomicfoundation/hardhat-ethers": "^3.0.5",
+    "@nomicfoundation/hardhat-network-helpers": "^1.0.10",
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@nomicfoundation/hardhat-verify": "^2.0.3",
+    "@openzeppelin/hardhat-upgrades": "^3.0.2",
+    "@typechain/ethers-v6": "^0.5.1",
+    "@typechain/hardhat": "^9.1.0",
+    "@types/chai": "^4.3.11",
+    "@types/mocha": "^10.0.6",
+    "@types/node": "^20.10.5",
+    "chai": "^4.3.10",
+    "dotenv": "^16.3.1",
+    "ethers": "^6.9.0",
+    "hardhat": "^2.19.3",
+    "hardhat-gas-reporter": "^1.0.9",
+    "solidity-coverage": "^0.8.5",
+    "ts-node": "^10.9.2",
+    "typechain": "^8.3.2",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.1",
+    "@openzeppelin/contracts-upgradeable": "^5.0.1"
+  }
+}

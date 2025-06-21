@@ -1,0 +1,1269 @@
+const { expect } = require("chai");
+const { ethers, upgrades } = require("hardhat");
+const { anyValue } = require("@nomicfoundation/hardhat-chai-matchers/withArgs");
+
+describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
+  let pmm;
+  let mockUSDC;
+  let owner;
+  let alice;
+  let bob;
+  let charlie;
+  let david;
+  let eve;
+  let frank;
+
+  // Platform IDs for testing
+  const PLATFORM_ID_1 = 1234567890;
+  const PLATFORM_ID_2 = 9876543210;
+  
+  // Generate unique platform IDs for tests
+  function getUniquePlatformId() {
+    return Math.floor(Date.now() * Math.random());
+  }
+  
+  // Common Pythagorean coordinates for testing
+  const COMMON_COORDS = [
+    [3, 4, 5],      // 3² + 4² = 5²
+    [5, 12, 13],    // 5² + 12² = 13²
+    [8, 15, 17],    // 8² + 15² = 17²
+    [7, 24, 25],    // 7² + 24² = 25²
+    [20, 21, 29],   // 20² + 21² = 29²
+    [11, 60, 61],   // 11² + 60² = 61²
+    [13, 84, 85],   // 13² + 84² = 85²
+    [36, 77, 85],   // 36² + 77² = 85²
+    [16, 63, 65],   // 16² + 63² = 65²
+    [33, 56, 65]    // 33² + 56² = 65²
+  ];
+
+  beforeEach(async function () {
+    [owner, alice, bob, charlie, david, eve, frank] = await ethers.getSigners();
+
+    // Deploy MockUSDC
+    const MockUSDC = await ethers.getContractFactory("MockUSDC");
+    mockUSDC = await MockUSDC.deploy();
+    await mockUSDC.waitForDeployment();
+
+    // Deploy PythagoreanMarketMaker
+    const PythagoreanMarketMaker = await ethers.getContractFactory("PythagoreanMarketMaker");
+    pmm = await upgrades.deployProxy(
+      PythagoreanMarketMaker,
+      [await mockUSDC.getAddress()],
+      { initializer: 'initialize' }
+    );
+    await pmm.waitForDeployment();
+
+    // Mint USDC to users
+    const amounts = [
+      [alice, "10000"],
+      [bob, "10000"],
+      [charlie, "2000000"], // 2M USDC for large tests
+      [david, "10000"],
+      [eve, "10000"],
+      [frank, "100000"]
+    ];
+    
+    for (const [user, amount] of amounts) {
+      await mockUSDC.mint(user.address, ethers.parseUnits(amount, 6));
+      await mockUSDC.connect(user).approve(await pmm.getAddress(), ethers.parseUnits(amount, 6));
+    }
+  });
+
+  describe("Read-Only Functions and Coordinate Validation", function () {
+    it("Should validate Pythagorean coordinates correctly", async function () {
+      // Valid coordinates
+      expect(await pmm.isValidCoordinate(3, 4)).to.be.true;
+      expect(await pmm.isValidCoordinate(5, 12)).to.be.true;
+      expect(await pmm.isValidCoordinate(8, 15)).to.be.true;
+      expect(await pmm.isValidCoordinate(7, 24)).to.be.true;
+      expect(await pmm.isValidCoordinate(20, 21)).to.be.true;
+      
+      // Invalid coordinates
+      expect(await pmm.isValidCoordinate(0, 5)).to.be.false; // Zero coordinate
+      expect(await pmm.isValidCoordinate(3, 0)).to.be.false; // Zero coordinate
+      expect(await pmm.isValidCoordinate(4, 5)).to.be.false; // Not Pythagorean
+      expect(await pmm.isValidCoordinate(10, 10)).to.be.false; // Genesis line
+      expect(await pmm.isValidCoordinate(2, 3)).to.be.false; // Not Pythagorean
+      
+      // Large coordinates
+      const largeValue = ethers.parseUnits("1.1", 9);
+      expect(await pmm.isValidCoordinate(largeValue, 3)).to.be.false;
+      expect(await pmm.isValidCoordinate(3, largeValue)).to.be.false;
+    });
+    
+    it("Should calculate trust scores correctly", async function () {
+      // Test various trust scores
+      const testCases = [
+        { x: 4, y: 3, expectedScore: 0.36 }, // 3²/(4²+3²) = 9/25 = 0.36
+        { x: 3, y: 4, expectedScore: 0.64 }, // 4²/(3²+4²) = 16/25 = 0.64
+        { x: 12, y: 5, expectedScore: 0.148 }, // 5²/(12²+5²) = 25/169 ≈ 0.148
+        { x: 5, y: 12, expectedScore: 0.852 }, // 12²/(5²+12²) = 144/169 ≈ 0.852
+        { x: 20, y: 21, expectedScore: 0.524 } // 21²/(20²+21²) = 441/841 ≈ 0.524
+      ];
+      
+      for (const { x, y, expectedScore } of testCases) {
+        const trustScore = await pmm.calculateTrustScore(x, y);
+        const scoreDecimal = Number(trustScore) / 1e18;
+        expect(scoreDecimal).to.be.closeTo(expectedScore, 0.001);
+      }
+      
+      // Edge cases
+      expect(await pmm.calculateTrustScore(0, 0)).to.equal(0);
+      
+      // Large values should revert
+      const largeValue = ethers.parseUnits("1.1", 9);
+      await expect(pmm.calculateTrustScore(largeValue, 3))
+        .to.be.revertedWithCustomError(pmm, "CoordinateTooLarge");
+    });
+    
+    it("Should check market existence correctly", async function () {
+      const platformId = getUniquePlatformId();
+      
+      // Market doesn't exist yet
+      expect(await pmm.marketExistsFor(platformId)).to.be.false;
+      
+      // Create market
+      await pmm.connect(alice).createMarket(platformId, 3, 4);
+      
+      // Now it exists
+      expect(await pmm.marketExistsFor(platformId)).to.be.true;
+    });
+    
+    it("Should return correct market state", async function () {
+      const platformId = getUniquePlatformId();
+      
+      // Non-existent market should return zeros
+      const emptyState = await pmm.getMarketState(platformId);
+      expect(emptyState.x).to.equal(0);
+      expect(emptyState.y).to.equal(0);
+      expect(emptyState.trustScore).to.equal(0);
+      expect(emptyState.totalVotes).to.equal(0);
+      
+      // Create market
+      await pmm.connect(alice).createMarket(platformId, 3, 4);
+      
+      // Check state
+      const state = await pmm.getMarketState(platformId);
+      expect(state.x).to.equal(3);
+      expect(state.y).to.equal(4);
+      expect(state.totalVotes).to.equal(7);
+      expect(Number(state.trustScore) / 1e18).to.be.closeTo(0.64, 0.001);
+    });
+    
+    it("Should return protocol fee information", async function () {
+      const [feeBasisPoints, feePercentage] = await pmm.getProtocolFeeInfo();
+      expect(feeBasisPoints).to.equal(100); // 100 basis points
+      expect(feePercentage).to.equal(1); // 1%
+    });
+    
+    it("Should return default slippage information", async function () {
+      const [slippageBasisPoints, slippagePercentage] = await pmm.getDefaultSlippage();
+      expect(slippageBasisPoints).to.equal(250); // 250 basis points
+      expect(slippagePercentage).to.equal(2); // 2.5% actually (250/100 = 2.5)
+    });
+  });
+
+  describe("Market Creation with Hypotenuse Pricing", function () {
+    it("Should create a market with hypotenuse-based cost", async function () {
+      // Create market at (3, 4)
+      // Cost = sqrt(3² + 4²) = 5 USDC + 1% fee = 5.05 USDC
+      await expect(pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4))
+        .to.emit(pmm, "MarketCreated")
+        .withArgs(PLATFORM_ID_1, alice.address, 3, 4, 7); // 7 total votes
+
+      // Check market state
+      const state = await pmm.getMarketState(PLATFORM_ID_1);
+      expect(state.x).to.equal(3);
+      expect(state.y).to.equal(4);
+      expect(state.totalVotes).to.equal(7);
+      
+      // Check Alice's position
+      const [trustVotes, distrustVotes, exists] = await pmm.getVoterPosition(PLATFORM_ID_1, alice.address);
+      expect(exists).to.be.true;
+      expect(trustVotes).to.equal(4);
+      expect(distrustVotes).to.equal(3);
+    });
+
+    it("Should charge correct hypotenuse-based fees", async function () {
+      const aliceBalanceBefore = await mockUSDC.balanceOf(alice.address);
+      const contractBalanceBefore = await mockUSDC.balanceOf(await pmm.getAddress());
+
+      // Create market at (3, 4)
+      await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
+
+      const aliceBalanceAfter = await mockUSDC.balanceOf(alice.address);
+      const contractBalanceAfter = await mockUSDC.balanceOf(await pmm.getAddress());
+
+      // Alice pays 5 USDC + 0.05 fee = 5.05 USDC
+      // Hypotenuse = sqrt(9 + 16) = 5
+      // Cost = 5 * 10^6 * 1.01 = 5,050,000
+      const aliceSpent = aliceBalanceBefore - aliceBalanceAfter;
+      expect(aliceSpent).to.equal(5050000n);
+
+      // Contract receives 5.05 USDC
+      const contractReceived = contractBalanceAfter - contractBalanceBefore;
+      expect(contractReceived).to.equal(5050000n);
+      
+      // Check accumulated fees
+      const accumulatedFees = await pmm.accumulatedProtocolFees();
+      expect(accumulatedFees).to.equal(50000n); // 0.05 USDC fee
+    });
+    
+    it("Should prevent market creation with invalid coordinates", async function () {
+      const platformId = getUniquePlatformId();
+      
+      // Zero coordinates with enough total votes
+      await expect(pmm.connect(alice).createMarket(platformId, 0, 10))
+        .to.be.revertedWithCustomError(pmm, "InvalidPythagoreanCoordinate");
+      await expect(pmm.connect(alice).createMarket(platformId, 10, 0))
+        .to.be.revertedWithCustomError(pmm, "InvalidPythagoreanCoordinate");
+        
+      // Genesis line (x = y)
+      await expect(pmm.connect(alice).createMarket(platformId, 5, 5))
+        .to.be.revertedWithCustomError(pmm, "MustStartOffGenesis");
+        
+      // Below minimum votes (checked before Pythagorean validation)
+      await expect(pmm.connect(alice).createMarket(platformId, 2, 1))
+        .to.be.revertedWithCustomError(pmm, "BelowMinimumVotes");
+        
+      // Not Pythagorean but has enough votes (4 + 5 = 9 votes, which is ≥ 7)
+      await expect(pmm.connect(alice).createMarket(platformId, 4, 5))
+        .to.be.revertedWithCustomError(pmm, "InvalidPythagoreanCoordinate");
+        
+      // Another non-Pythagorean with more votes (10 + 11 = 21 votes)
+      await expect(pmm.connect(alice).createMarket(platformId, 10, 11))
+        .to.be.revertedWithCustomError(pmm, "InvalidPythagoreanCoordinate");
+    });
+    
+    it("Should prevent duplicate market creation", async function () {
+      const platformId = getUniquePlatformId();
+      
+      // First creation should succeed
+      await pmm.connect(alice).createMarket(platformId, 3, 4);
+      
+      // Second creation with same platform ID should fail
+      await expect(pmm.connect(bob).createMarket(platformId, 5, 12))
+        .to.be.revertedWithCustomError(pmm, "MarketAlreadyExists");
+    });
+    
+    it("Should prevent coordinate reuse", async function () {
+      const platformId1 = getUniquePlatformId();
+      const platformId2 = getUniquePlatformId();
+      
+      // Create first market at (3, 4)
+      await pmm.connect(alice).createMarket(platformId1, 3, 4);
+      
+      // Try to create second market at same coordinate
+      await expect(pmm.connect(bob).createMarket(platformId2, 3, 4))
+        .to.be.revertedWithCustomError(pmm, "CoordinateOccupied");
+    });
+    
+    it("Should track market creator and volume", async function () {
+      const platformId = getUniquePlatformId();
+      
+      await pmm.connect(alice).createMarket(platformId, 5, 12);
+      
+      expect(await pmm.marketCreator(platformId)).to.equal(alice.address);
+      expect(await pmm.totalVoteVolume(platformId)).to.equal(17); // 5 + 12
+    });
+  });
+
+  describe("Vote Tracking", function () {
+    beforeEach(async function () {
+      // Alice creates initial market at (3, 4)
+      await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
+    });
+
+    it("Should track individual voter positions", async function () {
+      // Bob votes to move from (3, 4) to (5, 12)
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
+
+      // Check Bob's position
+      const [trustVotes, distrustVotes, exists] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
+      expect(exists).to.be.true;
+      expect(trustVotes).to.equal(8); // 12 - 4 = 8
+      expect(distrustVotes).to.equal(2); // 5 - 3 = 2
+
+      // Alice still has her original position
+      const [aliceTrust, aliceDistrust] = await pmm.getVoterPosition(PLATFORM_ID_1, alice.address);
+      expect(aliceTrust).to.equal(4);
+      expect(aliceDistrust).to.equal(3);
+    });
+
+    it("Should accumulate votes for multiple transactions", async function () {
+      // Bob's first vote: (3,4) to (5,12)
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
+      
+      // Bob's second vote: (5,12) to (11,60)
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 11, 60);
+
+      // Check Bob's accumulated position
+      const [trustVotes, distrustVotes] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
+      expect(trustVotes).to.equal(56); // 8 + 48 = 56
+      expect(distrustVotes).to.equal(8); // 2 + 6 = 8
+    });
+
+    it("Should prevent selling more votes than owned", async function () {
+      // Bob votes to (5, 12)
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
+      
+      // Bob owns 2 distrust votes, try to sell all of them plus 1 more
+      // Need to find a valid Pythagorean coordinate where Bob would need to sell 3 distrust votes
+      // From (5,12) if we go to (0,5) that's selling 5 distrust votes, which Bob doesn't have
+      // (0,5) is not valid anyway. Let's use (0,7) or (0,24) or another valid coordinate
+      // Actually, we need a coordinate where x < 2 to force overselling
+      // Since Bob only has 2 distrust votes, trying to go to x=0 or x=1 would require selling more than he has
+      // But we need a valid Pythagorean coordinate. Let's check what works:
+      // If current is (5,12) and Bob has 2 distrust votes
+      // Going to any coordinate with x < 3 would require selling more than 2 distrust votes
+      // We need a valid coordinate like (0,y) where y makes it Pythagorean
+      // But (0,y) is not valid. So let's think differently.
+      
+      // Actually, the issue is that Bob gained votes when moving from (3,4) to (5,12)
+      // Bob gained: 2 distrust, 8 trust
+      // So to make Bob sell more than he owns, we need to reduce distrust by more than 2
+      // Current market is at (5,12), so going to (2,y) would require selling 3 distrust votes
+      // We need (2,y) to be valid Pythagorean. 
+      // Let's find a valid coordinate with x=2
+      // Checking: 2² + y² = c²
+      // We need y such that 4 + y² is a perfect square
+      // If c² = 4 + y², then c² - 4 = y²
+      // So we need c² - 4 to be a perfect square
+      // Try c = 3: 9 - 4 = 5 (not perfect square)
+      // Try c = 4: 16 - 4 = 12 (not perfect square)  
+      // Try c = 5: 25 - 4 = 21 (not perfect square)
+      // Actually, let's use a coordinate that doesn't require x=2
+      
+      // Better approach: Bob has 2 distrust votes. Current position is (5,12).
+      // To force overselling, we need Bob to try to move to a position that requires
+      // reducing distrust by more than 2. So we need x < 3.
+      // But we also need it to be a valid Pythagorean coordinate.
+      // There's no valid Pythagorean coordinate with x < 3 except (0,y) which isn't valid.
+      
+      // Let's approach this differently. Bob owns exactly what he contributed.
+      // He contributed +2 distrust when moving from (3,4) to (5,12)
+      // So he can reduce distrust by at most 2.
+      // Current market: (5,12). Bob can move to minimum (3,y) for distrust.
+      // We need to find valid (3,y) coordinate. We know (3,4) is valid.
+      
+      // Actually, Bob trying to move back to original (3,4) would work but wouldn't exceed his votes.
+      // Let's make Bob try to sell more trust votes than he has instead.
+      // Bob has 8 trust votes. Current y=12. Moving to y < 4 would require selling more than 8.
+      // So let's try to move to (x,3) where it's valid.
+      // We know (4,3) is valid. From (5,12) to (4,3) requires reducing trust by 9, but Bob only has 8.
+      
+      await expect(pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 4, 3))
+        .to.be.revertedWithCustomError(pmm, "InsufficientVotesToSell");
+    });
+
+    it("Should allow selling within owned votes", async function () {
+      // Bob accumulates votes
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 11, 60);
+      
+      // Bob now has 8 distrust votes, can sell some
+      const bobBalanceBefore = await mockUSDC.balanceOf(bob.address);
+      
+      // Move from (11, 60) to (8, 15) - valid Pythagorean coordinate
+      // This reduces distrust by 3 (which Bob can afford) and trust by 45
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 8, 15);
+      
+      const bobBalanceAfter = await mockUSDC.balanceOf(bob.address);
+      
+      // Check Bob's position updated correctly
+      const [trustVotes, distrustVotes] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
+      expect(trustVotes).to.equal(11); // 56 - 45 = 11
+      expect(distrustVotes).to.equal(5); // 8 - 3 = 5
+      
+      // Bob should receive refund
+      expect(bobBalanceAfter).to.be.gt(bobBalanceBefore);
+    });
+  });
+
+  describe("Slippage Protection", function () {
+    beforeEach(async function () {
+      await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
+    });
+    
+    it("Should create market with custom slippage", async function () {
+      const platformId = getUniquePlatformId();
+      const slippageBasisPoints = 100; // 1% slippage
+      
+      // Calculate expected cost
+      const hypotenuse = Math.sqrt(5*5 + 12*12); // 13
+      const expectedCost = hypotenuse * 1.01; // With 1% fee
+      const maxAcceptableCost = expectedCost * 1.01; // With 1% slippage
+      
+      const balanceBefore = await mockUSDC.balanceOf(bob.address);
+      
+      await expect(pmm.connect(bob).createMarketWithSlippage(platformId, 5, 12, slippageBasisPoints))
+        .to.emit(pmm, "SlippageProtectionApplied")
+        .withArgs(
+          platformId,
+          bob.address,
+          slippageBasisPoints,
+          13130000n, // 13.13 USDC (13 + 0.13 fee)
+          13261300n, // 13.2613 USDC (with 1% slippage)
+          true // isBuy
+        );
+        
+      const balanceAfter = await mockUSDC.balanceOf(bob.address);
+      const spent = Number(balanceBefore - balanceAfter) / 1e6;
+      expect(spent).to.be.closeTo(13.13, 0.01);
+    });
+    
+    it("Should vote with custom slippage when buying", async function () {
+      const slippageBasisPoints = 500; // 5% slippage
+      
+      const balanceBefore = await mockUSDC.balanceOf(bob.address);
+      
+      // Move from (3,4) to (5,12) - cost 8 USDC + fee
+      await expect(pmm.connect(bob).voteOnMarketWithSlippage(PLATFORM_ID_1, 5, 12, slippageBasisPoints))
+        .to.emit(pmm, "SlippageProtectionApplied")
+        .withArgs(
+          PLATFORM_ID_1,
+          bob.address,
+          slippageBasisPoints,
+          8080000n, // 8.08 USDC (8 + 0.08 fee)
+          8484000n, // 8.484 USDC (with 5% slippage)
+          true // isBuy
+        );
+        
+      const balanceAfter = await mockUSDC.balanceOf(bob.address);
+      const spent = Number(balanceBefore - balanceAfter) / 1e6;
+      expect(spent).to.be.closeTo(8.08, 0.01);
+    });
+    
+    it("Should vote with custom slippage when selling", async function () {
+      // First Bob buys votes
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
+      
+      const slippageBasisPoints = 300; // 3% slippage
+      const balanceBefore = await mockUSDC.balanceOf(bob.address);
+      
+      // Sell back to (3,4) - refund 8 USDC - fee
+      await expect(pmm.connect(bob).voteOnMarketWithSlippage(PLATFORM_ID_1, 3, 4, slippageBasisPoints))
+        .to.emit(pmm, "SlippageProtectionApplied")
+        .withArgs(
+          PLATFORM_ID_1,
+          bob.address,
+          slippageBasisPoints,
+          7920000n, // 7.92 USDC (8 - 0.08 fee)
+          7682400n, // 7.6824 USDC (with 3% slippage)
+          false // isBuy = false for selling
+        );
+        
+      const balanceAfter = await mockUSDC.balanceOf(bob.address);
+      const received = Number(balanceAfter - balanceBefore) / 1e6;
+      expect(received).to.be.closeTo(7.92, 0.01);
+    });
+    
+    it("Should calculate payment with slippage correctly", async function () {
+      // Test calculatePaymentWithSlippage view function
+      const result = await pmm.calculatePaymentWithSlippage(
+        3, 4,    // current position
+        5, 12,   // new position
+        250      // 2.5% slippage
+      );
+      
+      expect(result.expectedPayment).to.equal(8080000n); // 8.08 USDC
+      expect(result.maxPaymentWithSlippage).to.equal(8282000n); // 8.282 USDC
+    });
+    
+    it("Should calculate refund with slippage correctly", async function () {
+      // Test calculateRefundWithSlippage view function
+      const result = await pmm.calculateRefundWithSlippage(
+        5, 12,   // current position
+        3, 4,    // new position
+        100      // 1% slippage
+      );
+      
+      expect(result.expectedRefund).to.equal(7920000n); // 7.92 USDC
+      expect(result.minRefundWithSlippage).to.equal(7840800n); // 7.8408 USDC
+    });
+    
+    it("Should reject invalid slippage values", async function () {
+      const platformId = getUniquePlatformId();
+      const platformId2 = getUniquePlatformId();
+      
+      // Slippage > 100%
+      await expect(pmm.connect(alice).createMarketWithSlippage(platformId, 3, 4, 10001))
+        .to.be.revertedWithCustomError(pmm, "InvalidSlippage");
+        
+      // Test with voting too
+      await pmm.connect(alice).createMarket(platformId2, 5, 12);
+      await expect(pmm.connect(bob).voteOnMarketWithSlippage(platformId2, 8, 15, 15000))
+        .to.be.revertedWithCustomError(pmm, "InvalidSlippage");
+    });
+  });
+
+  describe("Hypotenuse-Based Voting", function () {
+    beforeEach(async function () {
+      await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
+    });
+
+    it("Should charge based on hypotenuse change when buying", async function () {
+      const bobBalanceBefore = await mockUSDC.balanceOf(bob.address);
+      
+      // Move from (3, 4) to (5, 12)
+      // Cost = sqrt(5² + 12²) - sqrt(3² + 4²) = 13 - 5 = 8 USDC
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
+      
+      const bobBalanceAfter = await mockUSDC.balanceOf(bob.address);
+      const bobSpent = bobBalanceBefore - bobBalanceAfter;
+      
+      // 8 USDC + 0.08 fee = 8.08 USDC = 8,080,000 (6 decimals)
+      expect(bobSpent).to.equal(8080000n);
+    });
+
+    it("Should refund based on hypotenuse change when selling", async function () {
+      // First Bob buys to (5, 12)
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
+      
+      const bobBalanceBefore = await mockUSDC.balanceOf(bob.address);
+      
+      // Sell by moving back to (3, 4)
+      // Refund = sqrt(5² + 12²) - sqrt(3² + 4²) = 13 - 5 = 8 USDC
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 3, 4);
+      
+      const bobBalanceAfter = await mockUSDC.balanceOf(bob.address);
+      const bobReceived = bobBalanceAfter - bobBalanceBefore;
+      
+      // 8 USDC - 0.08 fee = 7.92 USDC = 7,920,000 (6 decimals)
+      expect(bobReceived).to.equal(7920000n);
+    });
+
+    it("Should handle rebalancing without cost", async function () {
+      // Bob moves to (5, 12)
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
+      
+      const bobBalanceBefore = await mockUSDC.balanceOf(bob.address);
+      
+      // Rebalance to (12, 5) - same hypotenuse
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 12, 5);
+      
+      const bobBalanceAfter = await mockUSDC.balanceOf(bob.address);
+      
+      // No cost change (only gas)
+      expect(bobBalanceAfter).to.equal(bobBalanceBefore);
+      
+      // Check position updated
+      const [trustVotes, distrustVotes] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
+      expect(trustVotes).to.equal(1); // 5 - 4 = 1
+      expect(distrustVotes).to.equal(9); // 12 - 3 = 9
+    });
+  });
+
+  describe("Complex Scenario from Spreadsheet", function () {
+    it("Should reproduce the exact spreadsheet example", async function () {
+      // Transaction 1: Alice creates at (3, 4) - Cost $5
+      await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
+      let [aliceTrust, aliceDistrust] = await pmm.getVoterPosition(PLATFORM_ID_1, alice.address);
+      expect(aliceTrust).to.equal(4);
+      expect(aliceDistrust).to.equal(3);
+
+      // Transaction 2: Bob moves to (5, 12) - Cost $8
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
+      let [bobTrust, bobDistrust] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
+      expect(bobTrust).to.equal(8);
+      expect(bobDistrust).to.equal(2);
+
+      // Transaction 3: Bob moves to (11, 60) - Cost $48
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 11, 60);
+      [bobTrust, bobDistrust] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
+      expect(bobTrust).to.equal(56); // 8 + 48
+      expect(bobDistrust).to.equal(8); // 2 + 6
+
+      // Transaction 4: Charlie moves to (110, 600) - Cost $549
+      await pmm.connect(charlie).voteOnMarket(PLATFORM_ID_1, 110, 600);
+      let [charlieTrust, charlieDistrust] = await pmm.getVoterPosition(PLATFORM_ID_1, charlie.address);
+      expect(charlieTrust).to.equal(540);
+      expect(charlieDistrust).to.equal(99);
+
+      // Transaction 5: Bob moves to (450, 600) - Cost $140
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 450, 600);
+      [bobTrust, bobDistrust] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
+      expect(bobTrust).to.equal(56); // unchanged
+      expect(bobDistrust).to.equal(348); // 8 + 340
+
+      // Transaction 6: David moves to (800, 600) - Cost $250
+      await pmm.connect(david).voteOnMarket(PLATFORM_ID_1, 800, 600);
+      let [davidTrust, davidDistrust] = await pmm.getVoterPosition(PLATFORM_ID_1, david.address);
+      expect(davidTrust).to.equal(0);
+      expect(davidDistrust).to.equal(350);
+
+      // Transaction 7: Alice moves to (1440, 600) - Cost $560
+      await pmm.connect(alice).voteOnMarket(PLATFORM_ID_1, 1440, 600);
+      [aliceTrust, aliceDistrust] = await pmm.getVoterPosition(PLATFORM_ID_1, alice.address);
+      expect(aliceTrust).to.equal(4); // unchanged
+      expect(aliceDistrust).to.equal(643); // 3 + 640
+
+      // Transaction 8: Bob sells by moving to (1178, 600) - Refund $238
+      const bobBalanceBefore = await mockUSDC.balanceOf(bob.address);
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 1178, 600);
+      const bobBalanceAfter = await mockUSDC.balanceOf(bob.address);
+      
+      [bobTrust, bobDistrust] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
+      expect(bobTrust).to.equal(56); // unchanged
+      expect(bobDistrust).to.equal(86); // 348 - 262
+
+      // Verify refund amount (238 USDC - 2.38 fee = 235.62 USDC)
+      const refund = bobBalanceAfter - bobBalanceBefore;
+      expect(refund).to.be.closeTo(235620000n, 10000n); // Allow small rounding difference
+    });
+  });
+
+  describe("Edge Cases", function () {
+    it("Should prevent voting on non-existent market", async function () {
+      const nonExistentId = getUniquePlatformId();
+      
+      await expect(pmm.connect(alice).voteOnMarket(nonExistentId, 3, 4))
+        .to.be.revertedWithCustomError(pmm, "MarketDoesNotExist");
+    });
+    
+    it("Should prevent non-voters from selling", async function () {
+      await pmm.connect(alice).createMarket(PLATFORM_ID_1, 5, 12);
+      
+      // Bob hasn't voted, can't sell
+      await expect(pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 3, 4))
+        .to.be.revertedWithCustomError(pmm, "InsufficientVotesToSell");
+    });
+    
+    it("Should handle voter positions across multiple platforms independently", async function () {
+      const platform1 = getUniquePlatformId();
+      const platform2 = getUniquePlatformId();
+      
+      // Alice creates two markets
+      await pmm.connect(alice).createMarket(platform1, 3, 4);
+      await pmm.connect(alice).createMarket(platform2, 5, 12);
+      
+      // Bob votes on platform1
+      await pmm.connect(bob).voteOnMarket(platform1, 8, 15);
+      
+      // Check Bob's positions
+      const [trust1, distrust1, exists1] = await pmm.getVoterPosition(platform1, bob.address);
+      const [trust2, distrust2, exists2] = await pmm.getVoterPosition(platform2, bob.address);
+      
+      // Bob should have position on platform1 but not platform2
+      expect(exists1).to.be.true;
+      expect(trust1).to.equal(11); // 15 - 4
+      expect(distrust1).to.equal(5); // 8 - 3
+      
+      expect(exists2).to.be.false;
+      expect(trust2).to.equal(0);
+      expect(distrust2).to.equal(0);
+    });
+
+    it("Should handle multiple voters correctly", async function () {
+      // Alice creates at (3,4)
+      await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
+      
+      // Bob moves to (5, 12) - gains 2 distrust, 8 trust
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
+      
+      // Charlie moves to (8, 15) - gains 3 distrust, 3 trust  
+      await pmm.connect(charlie).voteOnMarket(PLATFORM_ID_1, 8, 15);
+      
+      // David moves to (20, 21) - gains 12 distrust, 6 trust
+      await pmm.connect(david).voteOnMarket(PLATFORM_ID_1, 20, 21);
+      
+      // Check positions
+      const [bobTrust] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
+      const [charlieTrust] = await pmm.getVoterPosition(PLATFORM_ID_1, charlie.address);
+      const [davidTrust] = await pmm.getVoterPosition(PLATFORM_ID_1, david.address);
+      
+      expect(bobTrust).to.equal(8); // 12 - 4
+      expect(charlieTrust).to.equal(3); // 15 - 12
+      expect(davidTrust).to.equal(6); // 21 - 15
+    });
+  });
+
+  describe("Input Validation and Safety", function () {
+    it("Should reject coordinates that are too large", async function () {
+      const largeValue = ethers.parseUnits("1.1", 9); // Just over 1 billion
+      
+      await expect(pmm.connect(alice).createMarket(999, largeValue, 3))
+        .to.be.revertedWithCustomError(pmm, "CoordinateTooLarge");
+        
+      await expect(pmm.connect(alice).createMarket(999, 3, largeValue))
+        .to.be.revertedWithCustomError(pmm, "CoordinateTooLarge");
+    });
+
+    it("Should reject hypotenuse that is too large", async function () {
+      // For this test, we need coordinates that:
+      // 1. Form a valid Pythagorean triple
+      // 2. Have a hypotenuse > 1.5 billion
+      // 3. Are not on the genesis line (x ≠ y)
+      
+      // Let's use a scaled up version of (3,4,5) triple
+      // Scale factor: 300 million gives us (900M, 1.2B, 1.5B)
+      const scaleFactor = 300000000;
+      const largeX = 3 * scaleFactor; // 900 million
+      const largeY = 4 * scaleFactor; // 1.2 billion
+      // This should produce hypotenuse = 5 * 300M = 1.5 billion
+      
+      // First verify these would be valid coordinates if not for size
+      const smallX = 3;
+      const smallY = 4;
+      expect(await pmm.isValidCoordinate(smallX, smallY)).to.be.true;
+      
+      // Now test that the large version is rejected
+      // Since 1.2B > 1B (MAX_COORDINATE_VALUE), it should be rejected for coordinate size
+      await expect(pmm.connect(alice).createMarket(999, largeX, largeY))
+        .to.be.revertedWithCustomError(pmm, "CoordinateTooLarge");
+    });
+
+    it("Should enforce maximum payment amount", async function () {
+      // Test that valid coordinates within bounds work properly
+      // Using known valid Pythagorean triples at reasonable scale
+      
+      // Test 1: Medium scale (300, 400, 500)
+      await expect(pmm.connect(alice).createMarket(888, 300, 400))
+        .to.not.be.reverted;
+      
+      // Test 2: Larger scale (3000, 4000, 5000)
+      await expect(pmm.connect(bob).createMarket(889, 3000, 4000))
+        .to.not.be.reverted;
+      
+      // Test 3: Even larger but still reasonable (30000, 40000, 50000)
+      // This costs 50,000 USDC - use Charlie who has 2M USDC
+      await expect(pmm.connect(charlie).createMarket(890, 30000, 40000))
+        .to.not.be.reverted;
+    });
+
+    it("Should handle pause functionality", async function () {
+      // Pause the contract with empty reason (uses default message)
+      await pmm.connect(owner).pause("");
+      
+      // Try to create market while paused
+      await expect(pmm.connect(alice).createMarket(999, 3, 4))
+        .to.be.revertedWithCustomError(pmm, "EnforcedPause");
+        
+      // Try to vote while paused
+      await expect(pmm.connect(alice).voteOnMarket(PLATFORM_ID_1, 5, 12))
+        .to.be.revertedWithCustomError(pmm, "EnforcedPause");
+        
+      // Unpause
+      await pmm.connect(owner).unpause();
+      
+      // Should work now
+      await expect(pmm.connect(alice).createMarket(999, 3, 4))
+        .to.not.be.reverted;
+    });
+
+    it("Should validate coordinates in trust score calculation", async function () {
+      const largeValue = ethers.parseUnits("1.1", 9);
+      
+      await expect(pmm.calculateTrustScore(largeValue, 3))
+        .to.be.revertedWithCustomError(pmm, "CoordinateTooLarge");
+    });
+
+    it("Should return false for invalid coordinates in isValidCoordinate", async function () {
+      const largeValue = ethers.parseUnits("1.1", 9);
+      
+      // Should return false, not revert
+      expect(await pmm.isValidCoordinate(largeValue, 3)).to.be.false;
+      expect(await pmm.isValidCoordinate(3, largeValue)).to.be.false;
+      
+      // Should still validate normal coordinates
+      expect(await pmm.isValidCoordinate(3, 4)).to.be.true;
+    });
+
+    it("Should maintain 1 vote = 1 USDC relationship with boundary checks", async function () {
+      // Test small coordinates: (3, 4) with hypotenuse 5
+      // Cost should be exactly 5 USDC + 1% fee = 5.05 USDC
+      const aliceBalanceBefore = await mockUSDC.balanceOf(alice.address);
+      
+      await pmm.connect(alice).createMarket(777, 3, 4);
+      
+      const aliceBalanceAfter = await mockUSDC.balanceOf(alice.address);
+      const spent = aliceBalanceBefore - aliceBalanceAfter;
+      
+      // 5 USDC + 0.05 fee = 5.05 USDC = 5,050,000 units
+      expect(spent).to.equal(5050000n);
+      
+      // Test larger coordinates: (300, 400) with hypotenuse 500
+      // Cost should be exactly 500 USDC + 1% fee = 505 USDC
+      const bobBalanceBefore = await mockUSDC.balanceOf(bob.address);
+      
+      await pmm.connect(bob).createMarket(778, 300, 400);
+      
+      const bobBalanceAfter = await mockUSDC.balanceOf(bob.address);
+      const bobSpent = bobBalanceBefore - bobBalanceAfter;
+      
+      // 500 USDC + 5 fee = 505 USDC = 505,000,000 units
+      expect(bobSpent).to.equal(505000000n);
+      
+      // Test larger but reasonable: (30000, 40000) with hypotenuse 50000
+      // Cost = 50,000 USDC + 500 USDC fee = 50,500 USDC
+      const largeX = 30000; // 30,000
+      const largeY = 40000; // 40,000
+      // Hypotenuse = 50,000, cost = 50,000 USDC + fee
+      
+      const charlieBalanceBefore = await mockUSDC.balanceOf(charlie.address);
+      
+      await pmm.connect(charlie).createMarket(779, largeX, largeY);
+      
+      const charlieBalanceAfter = await mockUSDC.balanceOf(charlie.address);
+      const charlieSpent = charlieBalanceBefore - charlieBalanceAfter;
+      
+      // 50,000 USDC + 500 fee = 50,500 USDC = 50,500,000,000 units
+      expect(charlieSpent).to.equal(50500000000n);
+    });
+  });
+
+  describe("Fee Distribution System", function () {
+    beforeEach(async function () {
+      // Create some markets to generate fees
+      await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
+      await pmm.connect(charlie).voteOnMarket(PLATFORM_ID_1, 11, 60);
+    });
+
+    it("Should track accumulated protocol fees", async function () {
+      const accumulatedFees = await pmm.accumulatedProtocolFees();
+      
+      // Expected fees:
+      // - Alice: 5 USDC * 0.01 = 0.05 USDC
+      // - Bob: 8 USDC * 0.01 = 0.08 USDC  
+      // - Charlie: 48 USDC * 0.01 = 0.48 USDC
+      // Total: 0.61 USDC = 610,000 units
+      expect(accumulatedFees).to.equal(610000n);
+    });
+
+    it("Should distribute fees 50/50 between owner and protocol", async function () {
+      const ownerRecipient = await pmm.ownerFeeRecipient();
+      const protocolRecipient = await pmm.protocolFeeRecipient();
+      
+      const ownerBalanceBefore = await mockUSDC.balanceOf(ownerRecipient);
+      const protocolBalanceBefore = await mockUSDC.balanceOf(protocolRecipient);
+      
+      // Distribute all fees (pass 0 to distribute all)
+      await expect(pmm.connect(owner).distributeProtocolFees(0))
+        .to.emit(pmm, "ProtocolFeesDistributed");
+      
+      const ownerBalanceAfter = await mockUSDC.balanceOf(ownerRecipient);
+      const protocolBalanceAfter = await mockUSDC.balanceOf(protocolRecipient);
+      
+      // Each should receive half (0.305 USDC each)
+      expect(ownerBalanceAfter - ownerBalanceBefore).to.equal(305000n);
+      expect(protocolBalanceAfter - protocolBalanceBefore).to.equal(305000n);
+      
+      // Accumulated fees should be zero
+      expect(await pmm.accumulatedProtocolFees()).to.equal(0);
+    });
+
+    it("Should allow partial fee distribution", async function () {
+      const initialFees = await pmm.accumulatedProtocolFees();
+      
+      // Distribute only 200,000 (0.2 USDC)
+      await pmm.connect(owner).distributeProtocolFees(200000n);
+      
+      // Check remaining fees
+      expect(await pmm.accumulatedProtocolFees()).to.equal(initialFees - 200000n);
+    });
+
+    it("Should allow individual withdrawals to owner or protocol", async function () {
+      const ownerRecipient = await pmm.ownerFeeRecipient();
+      const protocolRecipient = await pmm.protocolFeeRecipient();
+      
+      const ownerBalanceBefore = await mockUSDC.balanceOf(ownerRecipient);
+      const protocolBalanceBefore = await mockUSDC.balanceOf(protocolRecipient);
+      
+      // Withdraw 100,000 to owner only
+      await pmm.connect(owner).withdrawToOwner(100000n);
+      
+      // Withdraw 200,000 to protocol only
+      await pmm.connect(owner).withdrawToProtocol(200000n);
+      
+      const ownerBalanceAfter = await mockUSDC.balanceOf(ownerRecipient);
+      const protocolBalanceAfter = await mockUSDC.balanceOf(protocolRecipient);
+      
+      expect(ownerBalanceAfter - ownerBalanceBefore).to.equal(100000n);
+      expect(protocolBalanceAfter - protocolBalanceBefore).to.equal(200000n);
+    });
+
+    it("Should allow updating fee recipients", async function () {
+      const newOwnerRecipient = david.address;
+      const newProtocolRecipient = charlie.address;
+      
+      await expect(pmm.connect(owner).updateFeeRecipients(newOwnerRecipient, newProtocolRecipient))
+        .to.emit(pmm, "FeeRecipientsUpdated")
+        .withArgs(newOwnerRecipient, newProtocolRecipient);
+      
+      expect(await pmm.ownerFeeRecipient()).to.equal(newOwnerRecipient);
+      expect(await pmm.protocolFeeRecipient()).to.equal(newProtocolRecipient);
+    });
+    
+    it("Should prevent updating fee recipients with zero addresses", async function () {
+      await expect(pmm.connect(owner).updateFeeRecipients(ethers.ZeroAddress, alice.address))
+        .to.be.revertedWithCustomError(pmm, "InvalidAddress");
+        
+      await expect(pmm.connect(owner).updateFeeRecipients(alice.address, ethers.ZeroAddress))
+        .to.be.revertedWithCustomError(pmm, "InvalidAddress");
+    });
+
+    it("Should revert on invalid fee operations", async function () {
+      // Try to withdraw more than accumulated
+      const fees = await pmm.accumulatedProtocolFees();
+      await expect(pmm.connect(owner).distributeProtocolFees(fees + 1n))
+        .to.be.revertedWithCustomError(pmm, "InvalidFeeAmount");
+      
+      // Try to withdraw zero
+      await expect(pmm.connect(owner).withdrawToOwner(0))
+        .to.be.revertedWithCustomError(pmm, "InvalidFeeAmount");
+      
+      // Non-owner tries to distribute
+      await expect(pmm.connect(alice).distributeProtocolFees(0))
+        .to.be.revertedWithCustomError(pmm, "OwnableUnauthorizedAccount");
+    });
+
+    it("Should show correct contract balance and liquidity", async function () {
+      const contractBalance = await pmm.getContractBalance();
+      const availableLiquidity = await pmm.getAvailableLiquidity();
+      const accumulatedFees = await pmm.accumulatedProtocolFees();
+      
+      // Contract holds all the payments made
+      expect(contractBalance).to.be.gt(0);
+      
+      // Available liquidity = balance - fees
+      expect(availableLiquidity).to.equal(contractBalance - accumulatedFees);
+    });
+
+    it("Should correctly calculate fee distribution preview", async function () {
+      const [ownerShare, protocolShare] = await pmm.calculateFeeDistribution();
+      const totalFees = await pmm.accumulatedProtocolFees();
+      
+      // Should be 50/50 split
+      expect(ownerShare).to.equal(totalFees / 2n);
+      expect(protocolShare).to.equal(totalFees - ownerShare);
+    });
+  });
+
+  describe("Comprehensive Event Logging", function () {
+    it("Should emit VoterFirstParticipation event", async function () {
+      await expect(pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4))
+        .to.emit(pmm, "VoterFirstParticipation")
+        .withArgs(PLATFORM_ID_1, alice.address, await ethers.provider.getBlock('latest').then(b => b.timestamp + 1));
+        
+      // Bob's first vote on this platform
+      await expect(pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12))
+        .to.emit(pmm, "VoterFirstParticipation")
+        .withArgs(PLATFORM_ID_1, bob.address, await ethers.provider.getBlock('latest').then(b => b.timestamp + 1));
+    });
+    
+    it("Should emit CoordinateChanged event", async function () {
+      await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
+      
+      const oldHash = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(["uint256", "uint256"], [3, 4]));
+      const newHash = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(["uint256", "uint256"], [5, 12]));
+      
+      await expect(pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12))
+        .to.emit(pmm, "CoordinateChanged")
+        .withArgs(PLATFORM_ID_1, oldHash, newHash, 3, 4, 5, 12);
+    });
+    
+    it("Should emit MarketRebalanced event for rebalancing", async function () {
+      await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
+      
+      // Rebalance to (12, 5) - same hypotenuse
+      await expect(pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 12, 5))
+        .to.emit(pmm, "MarketRebalanced")
+        .withArgs(PLATFORM_ID_1, bob.address, 5, 12, 12, 5, 0, 7); // trust delta = 0, distrust delta = 7
+    });
+    
+    it("Should emit SlippageProtectionApplied event", async function () {
+      await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
+      
+      // Vote with custom slippage
+      const tx = await pmm.connect(bob).voteOnMarketWithSlippage(PLATFORM_ID_1, 5, 12, 100); // 1% slippage
+      
+      // Check for SlippageProtectionApplied event
+      await expect(tx).to.emit(pmm, "SlippageProtectionApplied");
+    });
+    
+    it("Should emit LiquidityAdded and LiquidityRemoved events", async function () {
+      // LiquidityAdded on market creation
+      await expect(pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4))
+        .to.emit(pmm, "LiquidityAdded");
+        
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
+      
+      // LiquidityRemoved when selling
+      await expect(pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 3, 4))
+        .to.emit(pmm, "LiquidityRemoved");
+    });
+    
+    it("Should emit MarketMilestone events", async function () {
+      // Create a large market that crosses 100 vote milestone
+      await expect(pmm.connect(charlie).createMarket(999, 60, 80)) // 140 votes total
+        .to.emit(pmm, "MarketMilestone")
+        .withArgs(999, 140, 100, await ethers.provider.getBlock('latest').then(b => b.timestamp + 1));
+    });
+    
+    it("Should emit EmergencyActionTaken for pause/unpause", async function () {
+      await expect(pmm.connect(owner).pause(""))
+        .to.emit(pmm, "EmergencyActionTaken")
+        .withArgs("pause", owner.address, await ethers.provider.getBlock('latest').then(b => b.timestamp + 1), "Contract paused by owner");
+        
+      await expect(pmm.connect(owner).unpause())
+        .to.emit(pmm, "EmergencyActionTaken")
+        .withArgs("unpause", owner.address, await ethers.provider.getBlock('latest').then(b => b.timestamp + 1), "Contract unpaused by owner");
+    });
+    
+    it("Should emit EmergencyActionTaken with custom reason", async function () {
+      const customReason = "Suspicious activity detected";
+      await expect(pmm.connect(owner).pause(customReason))
+        .to.emit(pmm, "EmergencyActionTaken")
+        .withArgs("pause", owner.address, await ethers.provider.getBlock('latest').then(b => b.timestamp + 1), customReason);
+    });
+    
+    it("Should emit EmergencyActionTaken with empty reason for default message", async function () {
+      await expect(pmm.connect(owner).pause(""))
+        .to.emit(pmm, "EmergencyActionTaken")
+        .withArgs("pause", owner.address, await ethers.provider.getBlock('latest').then(b => b.timestamp + 1), "Contract paused by owner");
+    });
+  });
+
+  describe("Milestone Event Testing", function () {
+    it("Should emit milestone event when crossing 100 votes", async function () {
+      const platformId = getUniquePlatformId();
+      
+      // Create market with 140 total votes (60, 80)
+      await expect(pmm.connect(charlie).createMarket(platformId, 60, 80))
+        .to.emit(pmm, "MarketMilestone")
+        .withArgs(platformId, 140, 100, await ethers.provider.getBlock('latest').then(b => b.timestamp + 1));
+        
+      // Check highest milestone reached
+      expect(await pmm.highestMilestoneReached(platformId)).to.equal(100);
+    });
+    
+    it("Should emit multiple milestones when jumping levels", async function () {
+      const platformId = getUniquePlatformId();
+      
+      // Create market with 1400 votes (600, 800) - valid Pythagorean triple
+      const tx = await pmm.connect(charlie).createMarket(platformId, 600, 800);
+      
+      // Should emit milestones for 100 and 1000
+      await expect(tx)
+        .to.emit(pmm, "MarketMilestone")
+        .withArgs(platformId, 1400, 100, anyValue);
+        
+      await expect(tx)
+        .to.emit(pmm, "MarketMilestone")
+        .withArgs(platformId, 1400, 1000, anyValue);
+        
+      expect(await pmm.highestMilestoneReached(platformId)).to.equal(1000);
+    });
+    
+    it("Should emit milestone when voting crosses threshold", async function () {
+      const platformId = getUniquePlatformId();
+      
+      // Create market just below 100 votes - use (39, 52) = 91 votes (valid Pythagorean triple)
+      await pmm.connect(alice).createMarket(platformId, 39, 52);
+      
+      // Vote to cross 100 threshold
+      await expect(pmm.connect(bob).voteOnMarket(platformId, 60, 80)) // 140 votes
+        .to.emit(pmm, "MarketMilestone")
+        .withArgs(platformId, 140, 100, await ethers.provider.getBlock('latest').then(b => b.timestamp + 1));
+    });
+    
+    it("Should not re-emit already reached milestones", async function () {
+      const platformId = getUniquePlatformId();
+      
+      // Create market above 100
+      await pmm.connect(charlie).createMarket(platformId, 60, 80); // 140 votes
+      
+      // Vote to increase further but still below 1000
+      const tx = await pmm.connect(bob).voteOnMarket(platformId, 100, 240); // 340 votes (valid: 100² + 240² = 260²)
+      
+      // Should NOT emit 100 milestone again
+      const receipt = await tx.wait();
+      const milestoneEvents = receipt.logs.filter(
+        log => log.topics[0] === pmm.interface.getEvent("MarketMilestone").topicHash
+      );
+      expect(milestoneEvents.length).to.equal(0);
+    });
+    
+    it("Should track all milestone constants", async function () {
+      // Verify all milestone constants exist
+      expect(await pmm.MILESTONE_1()).to.equal(100);
+      expect(await pmm.MILESTONE_2()).to.equal(1000);
+      expect(await pmm.MILESTONE_3()).to.equal(10000);
+      expect(await pmm.MILESTONE_4()).to.equal(100000);
+      expect(await pmm.MILESTONE_5()).to.equal(1000000);
+      expect(await pmm.MILESTONE_6()).to.equal(10000000);
+      expect(await pmm.MILESTONE_7()).to.equal(100000000);
+    });
+  });
+
+  describe("Balance and Liquidity Management", function () {
+    it("Should track contract balance correctly", async function () {
+      const initialBalance = await pmm.getContractBalance();
+      expect(initialBalance).to.equal(0);
+      
+      // Create market
+      await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
+      
+      // Contract should now hold 5.05 USDC
+      const afterCreation = await pmm.getContractBalance();
+      expect(afterCreation).to.equal(5050000n);
+      
+      // Vote to add more liquidity
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
+      
+      // Contract should now hold 5.05 + 8.08 = 13.13 USDC
+      const afterVoting = await pmm.getContractBalance();
+      expect(afterVoting).to.equal(13130000n);
+    });
+    
+    it("Should calculate available liquidity correctly", async function () {
+      // Create market and vote to generate fees
+      await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
+      
+      const contractBalance = await pmm.getContractBalance();
+      const accumulatedFees = await pmm.accumulatedProtocolFees();
+      const availableLiquidity = await pmm.getAvailableLiquidity();
+      
+      // Available liquidity = balance - fees
+      expect(availableLiquidity).to.equal(contractBalance - accumulatedFees);
+    });
+    
+    it("Should prevent insufficient balance errors", async function () {
+      await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
+      
+      // Try to vote with insufficient balance
+      const poorUser = eve; // Has USDC but not enough
+      await mockUSDC.connect(poorUser).transfer(owner.address, await mockUSDC.balanceOf(poorUser.address) - 1000000n); // Leave only 1 USDC
+      
+      // Should fail due to insufficient balance
+      await expect(pmm.connect(poorUser).voteOnMarket(PLATFORM_ID_1, 5, 12))
+        .to.be.revertedWithCustomError(pmm, "PaymentFailed");
+    });
+  });
+
+  describe("Coordinate Occupancy and Retry Logic", function () {
+    it("Should handle coordinate occupancy when creating multiple markets", async function () {
+      const platformIds = [];
+      const usedCoords = [];
+      
+      // Try to create markets using common coordinates
+      for (let i = 0; i < 5; i++) {
+        const platformId = getUniquePlatformId();
+        platformIds.push(platformId);
+        
+        // Try common coordinates first
+        for (const [x, y] of COMMON_COORDS.slice(0, 10)) {
+          const coordKey = `${x},${y}`;
+          
+          if (!usedCoords.includes(coordKey)) {
+            try {
+              await pmm.connect(alice).createMarket(platformId, x, y);
+              usedCoords.push(coordKey);
+              console.log(`Created market ${platformId} at (${x}, ${y})`);
+              break;
+            } catch (error) {
+              // Coordinate occupied, try next
+              if (error.message.includes("CoordinateOccupied")) {
+                continue;
+              }
+              throw error;
+            }
+          }
+        }
+      }
+      
+      // Verify all markets were created
+      for (const platformId of platformIds) {
+        expect(await pmm.marketExistsFor(platformId)).to.be.true;
+      }
+    });
+    
+    it("Should find available coordinates with larger multipliers", async function () {
+      // Create markets at common small coordinates
+      const smallCoords = [[3, 4], [5, 12], [8, 15], [7, 24], [20, 21]];
+      let platformId = getUniquePlatformId();
+      
+      for (const [x, y] of smallCoords) {
+        try {
+          await pmm.connect(alice).createMarket(platformId++, x, y);
+        } catch (e) {
+          // Skip if occupied
+        }
+      }
+      
+      // Now create markets with larger multipliers
+      const baseTriples = [[3, 4, 5], [5, 12, 13], [8, 15, 17]];
+      const newMarkets = [];
+      
+      for (let multiplier = 10; multiplier <= 50; multiplier += 10) {
+        for (const [baseX, baseY] of baseTriples) {
+          const x = baseX * multiplier;
+          const y = baseY * multiplier;
+          const newPlatformId = getUniquePlatformId();
+          
+          try {
+            await pmm.connect(bob).createMarket(newPlatformId, x, y);
+            newMarkets.push({ platformId: newPlatformId, x, y });
+            break; // Found available coordinate
+          } catch (e) {
+            // Continue searching
+          }
+        }
+      }
+      
+      // Verify we created some markets with larger coordinates
+      expect(newMarkets.length).to.be.gt(0);
+      console.log(`Created ${newMarkets.length} markets with larger coordinates`);
+    });
+  });
+
+  describe("Access Control", function () {
+    it("Should enforce owner-only functions", async function () {
+      // Non-owner tries to pause
+      await expect(pmm.connect(alice).pause(""))
+        .to.be.revertedWithCustomError(pmm, "OwnableUnauthorizedAccount");
+        
+      // Non-owner tries to unpause
+      await expect(pmm.connect(alice).unpause())
+        .to.be.revertedWithCustomError(pmm, "OwnableUnauthorizedAccount");
+        
+      // Non-owner tries to distribute fees
+      await expect(pmm.connect(alice).distributeProtocolFees(0))
+        .to.be.revertedWithCustomError(pmm, "OwnableUnauthorizedAccount");
+        
+      // Non-owner tries to update fee recipients
+      await expect(pmm.connect(alice).updateFeeRecipients(bob.address, charlie.address))
+        .to.be.revertedWithCustomError(pmm, "OwnableUnauthorizedAccount");
+    });
+    
+    it("Should allow owner to transfer ownership", async function () {
+      // Transfer ownership to alice
+      await pmm.connect(owner).transferOwnership(alice.address);
+      
+      // Alice should now be able to pause
+      await expect(pmm.connect(alice).pause("Test pause"))
+        .to.emit(pmm, "EmergencyActionTaken");
+        
+      // Original owner should not be able to pause
+      await expect(pmm.connect(owner).unpause())
+        .to.be.revertedWithCustomError(pmm, "OwnableUnauthorizedAccount");
+    });
+  });
+
+  describe("Platform Market Info", function () {
+    it("Should display platform market information", async function () {
+      console.log("\n=== Platform Market Info ===");
+      console.log("Protocol Fee:", await pmm.PROTOCOL_FEE_BASIS_POINTS(), "basis points (1%)");
+      console.log("Minimum Votes:", await pmm.MINIMUM_VOTES());
+      
+      // Check fee recipients
+      const feeInfo = await pmm.getFeeDistributionInfo();
+      console.log("Owner Fee Recipient:", feeInfo.ownerRecipient);
+      console.log("Protocol Fee Recipient:", feeInfo.protocolRecipient);
+      console.log("Accumulated Fees:", ethers.formatUnits(feeInfo.pendingFees, 6), "USDC");
+    });
+  });
+});

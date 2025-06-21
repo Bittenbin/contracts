@@ -1,0 +1,68 @@
+# Compiler files
+__pycache__/
+cache/
+artifacts/
+out/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Account
+accounts.txt
+
+# Ignores development broadcast logs
+!/broadcast
+/broadcast/*/31337/
+/broadcast/**/dry-run/
+
+# Dotenv file
+.env
+
+# Mac
+.DS_Store
+
+# Lock files
+*.lock
+yarn.lock
+
+# Coverage
+coverage
+coverage.json
+
+# Hardhat files
+node_modules/
+typechain-types/
+
+# Editor directories and files
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Temporary files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Deployment files
+deployments/
+
+# OpenZeppelin
+.openzeppelin/
+
+# Foundry (keeping for reference, but can be removed)
+lib/
+forge-cache/
+
+# Build artifacts
+*.sol.abi
+*.sol.bin
+
+# Test artifacts
+test/fuzzing/
+test/invariant/ 
