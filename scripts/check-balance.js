@@ -12,7 +12,7 @@ async function main() {
   const ethBalance = await ethers.provider.getBalance(signer.address);
   console.log(`\nETH Balance: ${ethers.formatEther(ethBalance)} ETH`);
   
-  // Try to get USDC balance if deployment exists
+  // Try to get TENBIN balance if deployment exists
   try {
     // Look for deployment files with new naming pattern
     const deploymentsDir = path.join(__dirname, "../deployments");
@@ -26,11 +26,17 @@ async function main() {
       
       console.log(`\nUsing deployment from: ${deployment.timestamp}`);
       
-      const paymentToken = deployment.contracts.PaymentToken || deployment.contracts.MockUSDC;
-      const usdc = await ethers.getContractAt("MockUSDC", paymentToken);
+      const paymentToken = deployment.contracts.PaymentToken;
+      // Attempt to use TenbinToken, fallback to generic ERC20 interface name if ABI mismatch
+      let tenbin;
+      try {
+        tenbin = await ethers.getContractAt("TenbinToken", paymentToken);
+      } catch {
+        tenbin = await ethers.getContractAt("IERC20", paymentToken);
+      }
       
-      const usdcBalance = await usdc.balanceOf(signer.address);
-      console.log(`USDC Balance: ${ethers.formatUnits(usdcBalance, 6)} USDC`);
+      const tenbinBalance = await tenbin.balanceOf(signer.address);
+      console.log(`TENBIN Balance: ${ethers.formatUnits(tenbinBalance, 6)} TENBIN`);
       
       // Get PMM contract
       const pmm = await ethers.getContractAt("PythagoreanMarketMaker", deployment.contracts.PythagoreanMarketMaker);
@@ -43,7 +49,20 @@ async function main() {
       const feeInfo = await pmm.getFeeDistributionInfo();
       console.log("Owner Fee Recipient:", feeInfo.ownerRecipient);
       console.log("Protocol Fee Recipient:", feeInfo.protocolRecipient);
-      console.log("Accumulated Fees:", ethers.formatUnits(feeInfo.pendingFees, 6), "USDC");
+      console.log("Accumulated Fees:", ethers.formatUnits(feeInfo.pendingFees, 6), "TENBIN");
+      
+      // Show total markets and yield rate
+      try {
+        const totalMarkets = await pmm.totalMarkets();
+        console.log("Total Markets:", totalMarkets.toString());
+        
+        if (totalMarkets > 0) {
+          const yieldRate = await pmm.currentAnnualYieldWad();
+          console.log("Current Annual Yield Rate:", (Number(yieldRate) / 1e18 * 100).toFixed(2) + "%");
+        }
+      } catch (e) {
+        // totalMarkets or yield functions may not exist in older versions
+      }
       
       // Example: Check a few platform IDs
       console.log("\n=== Sample Market States ===");

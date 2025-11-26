@@ -6,21 +6,18 @@ async function main() {
   const [deployer] = await ethers.getSigners();
   console.log("Deploying contracts with account:", deployer.address);
 
-  // Check if we should deploy MockUSDC or use existing
-  const deployMockUSDC = process.env.DEPLOY_MOCK_USDC === "true";
+  // Check if we should deploy TENBIN or use existing
+  const deployTenbin = process.env.DEPLOY_TENBIN === "true";
   let paymentTokenAddress;
+  let tenbinInstance;
 
-  if (deployMockUSDC) {
-    console.log("Deploying MockUSDC...");
-    const MockUSDC = await ethers.getContractFactory("MockUSDC");
-    const mockUSDC = await MockUSDC.deploy();
-    await mockUSDC.waitForDeployment();
-    paymentTokenAddress = await mockUSDC.getAddress();
-    console.log("MockUSDC deployed to:", paymentTokenAddress);
-
-    // Mint some USDC to deployer for testing
-    console.log("Minting 10,000 USDC to deployer...");
-    await mockUSDC.mint(deployer.address, ethers.parseUnits("10000", 6));
+  if (deployTenbin) {
+    console.log("Deploying TENBIN token...");
+    const TenbinToken = await ethers.getContractFactory("TenbinToken");
+    tenbinInstance = await TenbinToken.deploy((await ethers.getSigners())[0].address);
+    await tenbinInstance.waitForDeployment();
+    paymentTokenAddress = await tenbinInstance.getAddress();
+    console.log("TENBIN deployed to:", paymentTokenAddress);
   } else {
     paymentTokenAddress = process.env.PAYMENT_TOKEN;
     console.log("Using existing payment token:", paymentTokenAddress);
@@ -36,6 +33,14 @@ async function main() {
   );
   await pmm.waitForDeployment();
   console.log("PythagoreanMarketMaker deployed to:", await pmm.getAddress());
+  
+  // If TENBIN was deployed in this script, transfer minting power to PMM
+  if (tenbinInstance) {
+    await (await tenbinInstance.setMinter(await pmm.getAddress())).wait();
+    console.log("TENBIN minter set to PMM:", await pmm.getAddress());
+  } else {
+    console.log("Note: Using existing payment token; ensure PMM has minting rights if required.");
+  }
 
   // Verify the deployment
   console.log("\nVerifying deployment...");
@@ -57,19 +62,11 @@ async function main() {
   console.log("Overflow protection: Enabled");
 
   // Test coordinate validation
-  console.log("\nTesting Pythagorean coordinate validation:");
+  console.log("\nTesting coordinate validation:");
   console.log("Is (3,4) valid?", await pmm.isValidCoordinate(3, 4)); // Should be true
   console.log("Is (5,12) valid?", await pmm.isValidCoordinate(5, 12)); // Should be true
-  console.log("Is (2,3) valid?", await pmm.isValidCoordinate(2, 3)); // Should be false
+  console.log("Is (2,3) valid?", await pmm.isValidCoordinate(2, 3)); // Should be true now
   console.log("Is (5,5) valid?", await pmm.isValidCoordinate(5, 5)); // Should be true (but not allowed for creation)
-
-  // Show suggested coordinates for different trust levels
-  console.log("\nSuggested initial coordinates:");
-  const trustLevels = [0.3, 0.5, 0.7, 0.85];
-  for (const level of trustLevels) {
-    const suggested = await pmm.suggestInitialCoordinates(ethers.parseEther(level.toString()));
-    console.log(`For trust score ~${level}: (${suggested.x}, ${suggested.y})`);
-  }
 
   console.log("\n=== Deployment Summary ===");
   console.log("Network:", network.name);
@@ -101,12 +98,12 @@ async function main() {
     console.log("------------------");
     console.log("1. Create a market for platform ID 1234567890:");
     console.log(`   await pmm.createMarket(1234567890, 3, 4)`);
-    console.log("   Cost: sqrt(3² + 4²) = 5 USDC + 0.05 fee = 5.05 USDC");
+    console.log("   Cost: sqrt(3² + 4²) = 5 TENBIN + 0.05 fee = 5.05 TENBIN");
     console.log("   You own: 3 distrust, 4 trust votes\n");
     
     console.log("2. Vote to increase trust:");
     console.log(`   await pmm.voteOnMarket(1234567890, 5, 12)`);
-    console.log("   Cost: sqrt(5² + 12²) - sqrt(3² + 4²) = 13 - 5 = 8 USDC + fee");
+    console.log("   Cost: sqrt(5² + 12²) - sqrt(3² + 4²) = 13 - 5 = 8 TENBIN + fee");
     console.log("   You gain: 2 distrust, 8 trust votes\n");
     
     console.log("3. Check your position:");
@@ -115,7 +112,7 @@ async function main() {
     
     console.log("4. Sell some votes:");
     console.log(`   await pmm.voteOnMarket(1234567890, 3, 4)`);
-    console.log("   Refund: 8 USDC - 0.08 fee = 7.92 USDC");
+    console.log("   Refund: 8 TENBIN - 0.08 fee = 7.92 TENBIN");
     console.log("   ⚠️  You can only sell votes you own!\n");
     
     console.log("Key Changes:");
@@ -136,7 +133,7 @@ async function main() {
     
     console.log("3. Distribute specific amount:");
     console.log(`   await pmm.distributeProtocolFees(ethers.parseUnits("10", 6))`);
-    console.log("   Distributes 10 USDC (5 to each recipient)\n");
+    console.log("   Distributes 10 TENBIN (5 to each recipient)\n");
     
     console.log("4. Individual withdrawals:");
     console.log(`   await pmm.withdrawToOwner(amount)`);

@@ -1,8 +1,8 @@
 const { ethers, upgrades } = require("hardhat");
 const readline = require("readline");
 
-// Base Mainnet USDC address
-const BASE_MAINNET_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+// Optionally use an existing TENBIN token address from env, or deploy if DEPLOY_TENBIN is true
+const TENBIN_TOKEN_ADDRESS = process.env.PAYMENT_TOKEN || "";
 
 // Create readline interface for user confirmation
 const rl = readline.createInterface({
@@ -33,7 +33,7 @@ async function main() {
   console.log("Network: Base Mainnet");
   console.log("Deployer:", deployer.address);
   console.log("Balance:", ethers.formatEther(balance), "ETH");
-  console.log("USDC Address:", BASE_MAINNET_USDC);
+  console.log("TENBIN Address (if provided):", TENBIN_TOKEN_ADDRESS || "(will deploy)");
   console.log("\n⚠️  IMPORTANT: This is a MAINNET deployment with REAL funds!");
   
   // Check if deployer has enough ETH
@@ -43,11 +43,23 @@ async function main() {
     process.exit(1);
   }
 
-  // Verify USDC contract exists
-  const usdcCode = await ethers.provider.getCode(BASE_MAINNET_USDC);
-  if (usdcCode === "0x") {
-    console.error("\n❌ ERROR: USDC contract not found at expected address!");
-    process.exit(1);
+  let paymentTokenAddress;
+  let tenbinInstance = null;
+  if (process.env.DEPLOY_TENBIN === "true" || !TENBIN_TOKEN_ADDRESS) {
+    console.log("\nDeploying TENBIN token on Base mainnet...");
+    const TenbinToken = await ethers.getContractFactory("TenbinToken");
+    tenbinInstance = await TenbinToken.deploy(deployer.address);
+    await tenbinInstance.waitForDeployment();
+    paymentTokenAddress = await tenbinInstance.getAddress();
+    console.log("TENBIN deployed to:", paymentTokenAddress);
+  } else {
+    // Verify TENBIN contract exists
+    const tenbinCode = await ethers.provider.getCode(TENBIN_TOKEN_ADDRESS);
+    if (tenbinCode === "0x") {
+      console.error("\n❌ ERROR: TENBIN contract not found at provided address!");
+      process.exit(1);
+    }
+    paymentTokenAddress = TENBIN_TOKEN_ADDRESS;
   }
 
   // Get user confirmation
@@ -67,10 +79,13 @@ async function main() {
     
     const pmm = await upgrades.deployProxy(
       PythagoreanMarketMaker,
-      [BASE_MAINNET_USDC],
+      [paymentTokenAddress],
       { 
         initializer: 'initialize',
-        timeout: 0 // No timeout for mainnet
+        timeout: 0, // No timeout for mainnet
+        txOverrides: {
+          gasLimit: 5000000
+        }
       }
     );
     
@@ -78,6 +93,14 @@ async function main() {
     const proxyAddress = await pmm.getAddress();
     
     console.log("✅ PythagoreanMarketMaker deployed to:", proxyAddress);
+    
+    // Transfer TENBIN minting power to PMM if TENBIN was deployed here
+    if (tenbinInstance) {
+      await (await tenbinInstance.setMinter(proxyAddress)).wait();
+      console.log("TENBIN minter set to PMM:", proxyAddress);
+    } else {
+      console.log("Note: Using existing TENBIN; ensure PMM has minting rights if required.");
+    }
     
     // Get implementation address
     const implementationAddress = await upgrades.erc1967.getImplementationAddress(proxyAddress);
@@ -108,13 +131,13 @@ async function main() {
       contracts: {
         PythagoreanMarketMaker: proxyAddress,
         Implementation: implementationAddress,
-        PaymentToken: BASE_MAINNET_USDC
+        PaymentToken: paymentTokenAddress
       },
       deployer: deployer.address,
       deploymentBlock: await ethers.provider.getBlockNumber(),
       timestamp: new Date().toISOString(),
       gasPrice: (await ethers.provider.getFeeData()).gasPrice?.toString(),
-      notes: "Base Mainnet deployment with real USDC"
+      notes: "Base Mainnet deployment with TENBIN as payment token"
     };
     
     // Ensure deployments directory exists
@@ -132,7 +155,7 @@ async function main() {
     console.log("=================================");
     console.log("\n📝 Next Steps:");
     console.log("1. Verify the proxy contract on Basescan:");
-    console.log(`   npx hardhat verify --network base ${proxyAddress} ${BASE_MAINNET_USDC}`);
+    console.log(`   npx hardhat verify --network base ${proxyAddress} ${paymentTokenAddress}`);
     console.log("\n2. Verify the implementation contract:");
     console.log(`   npx hardhat verify --network base ${implementationAddress}`);
     console.log("\n3. Test with a small market creation");
