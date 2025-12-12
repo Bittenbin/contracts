@@ -71,9 +71,9 @@ describe("Yield Accrual and Claiming", function () {
 
     // Bob buys (0,0)->(3,4)
     await pmm.connect(bob).voteOnMarket(platformId, 3, 4);
-    // Base = holdings.trustCost + holdings.distrustCost ~ 5 tokens (no fee)
+    // Base = holdings.yCost + holdings.xCost ~ 5 tokens (no fee)
     let holding = await pmm.holdings(platformId, bob.address);
-    const base1 = holding.trustCost + holding.distrustCost;
+    const base1 = holding.yCost + holding.xCost;
     expect(base1).to.equal(ethers.parseUnits("5", 6)); // exact due to sqrt(25)=5 scaled
 
     // Advance 90 days
@@ -91,12 +91,12 @@ describe("Yield Accrual and Claiming", function () {
     // Allow small rounding tolerance
     expect(minted1).to.be.closeTo(expected1, 5n);
 
-    // Do not claim again; buy additional (3,4)->(4,6) i.e., +1 trust, +2 distrust
+    // Do not claim again; buy additional (3,4)->(4,6) i.e., +2 y, +1 x
     await pmm.connect(bob).voteOnMarket(platformId, 4, 6);
 
     // New base should have increased by the path-decomposed costs
     holding = await pmm.holdings(platformId, bob.address);
-    const base2 = holding.trustCost + holding.distrustCost;
+    const base2 = holding.yCost + holding.xCost;
     expect(base2).to.be.gt(base1);
 
     // Advance 30 days with same n=1 rate
@@ -121,29 +121,29 @@ describe("Yield Accrual and Claiming", function () {
     // Bob buys to (5,12)
     await pmm.connect(bob).voteOnMarket(platformId, 5, 12);
     let holding = await pmm.holdings(platformId, bob.address);
-    const baseBeforeSell = holding.trustCost + holding.distrustCost;
+    const baseBeforeSell = holding.yCost + holding.xCost;
     const posBefore = await pmm.getVoterPosition(platformId, bob.address);
-    const trustBefore = posBefore[0];
-    const distrustBefore = posBefore[1];
+    const yBefore = posBefore[0];
+    const xBefore = posBefore[1];
 
     // Sell back to (3,4) (reduces both)
     await pmm.connect(bob).voteOnMarket(platformId, 3, 4);
     holding = await pmm.holdings(platformId, bob.address);
-    const baseAfterSell = holding.trustCost + holding.distrustCost;
+    const baseAfterSell = holding.yCost + holding.xCost;
     const posAfter = await pmm.getVoterPosition(platformId, bob.address);
-    const trustAfter = posAfter[0];
-    const distrustAfter = posAfter[1];
+    const yAfter = posAfter[0];
+    const xAfter = posAfter[1];
 
     // Base reduced in proportion to votes sold
     expect(baseAfterSell).to.be.lt(baseBeforeSell);
-    expect(trustAfter).to.be.lt(trustBefore);
-    expect(distrustAfter).to.be.lt(distrustBefore);
+    expect(yAfter).to.be.lt(yBefore);
+    expect(xAfter).to.be.lt(xBefore);
 
     // Rebalance (same hypotenuse) e.g., (3,4)->(4,3)
     const basePreReb = baseAfterSell;
     await pmm.connect(bob).voteOnMarket(platformId, 4, 3);
     holding = await pmm.holdings(platformId, bob.address);
-    const basePostReb = holding.trustCost + holding.distrustCost;
+    const basePostReb = holding.yCost + holding.xCost;
     expect(basePostReb).to.equal(basePreReb);
   });
 

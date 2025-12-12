@@ -1,6 +1,6 @@
 # Pythagorean Market Maker (PMM)
 
-A decentralized reputation system using coordinate-based markets to track trust and distrust votes for any platform entity.
+A decentralized reputation system using coordinate-based markets to track votes for any platform entity.
 
 ## 🚀 Live Deployments
 
@@ -24,7 +24,7 @@ A decentralized reputation system using coordinate-based markets to track trust 
 ## Overview
 
 PMM creates reputation markets where:
-- Each market exists at coordinates (x, y) where **x = distrust votes** and **y = trust votes**
+- Each market exists at coordinates (x, y) representing vote positions
 - Coordinates are valid when x>0, y>0 within bounds (max 1 billion each)
 - **Cost = sqrt(x² + y²) TENBIN** with configurable protocol fee (0-1%, default 1%)
 - Individual vote tracking ensures you can only sell votes you own
@@ -33,7 +33,7 @@ PMM creates reputation markets where:
 
 ### Key Features
 - Create markets for any numeric platform ID (via application workflow)
-- Buy votes to increase trust or distrust
+- Buy votes to change position on x or y axis
 - Sell only the votes you personally contributed
 - Earn yield on your holdings over time
 - No expiration - markets exist forever
@@ -125,13 +125,13 @@ The hypotenuse can be fractional; payments are calculated with token-decimal pre
 - You can only sell votes you previously bought
 - Your position accumulates across multiple transactions
 
-### Trust Score
+### Score
 ```
-Trust Score = y² / (x² + y²)
+Score = y² / (x² + y²)
 ```
-- (3,4) = 64% trust
-- (4,3) = 36% trust
-- (5,12) = 92% trust
+- (3,4) = 64%
+- (4,3) = 36%
+- (5,12) = 85%
 
 ## Market Application Flow
 
@@ -168,21 +168,21 @@ where K = 0.75 * sqrt(π) ≈ 1.329
 ```
 
 - More markets → lower individual yield rate (sustainable tokenomics)
-- Yield accrues linearly on your **cost basis** (trustCost + distrustCost)
+- Yield accrues linearly on your **cost basis** (yCost + xCost)
 
 ### Cost Basis Tracking
 For each user and market, PMM tracks:
-- `trustCost`: TENBIN spent on trust votes
-- `distrustCost`: TENBIN spent on distrust votes
+- `yCost`: TENBIN spent on y-axis votes
+- `xCost`: TENBIN spent on x-axis votes
 - `lastAccrual`: Timestamp of last yield calculation
 - `unclaimedYield`: Accumulated rewards pending claim
 
 ### How Yield Accrues
 ```
-reward = (trustCost + distrustCost) × annualRate × timeElapsed / year
+reward = (yCost + xCost) × annualRate × timeElapsed / year
 ```
 
-- **Buying**: Adds to cost basis (decomposed along trust/distrust path)
+- **Buying**: Adds to cost basis (decomposed along y/x path)
 - **Selling**: Reduces cost basis pro-rata for units sold
 - **Rebalancing**: No change to cost basis (same hypotenuse)
 - **Claiming**: Mints accrued TENBIN to caller, resets unclaimed to 0
@@ -216,7 +216,7 @@ await pmm.claimYield(1234567890);
 - `currentAnnualYieldWad()` - Get current annual yield rate (WAD format)
 
 ### Read Functions
-- `getMarketState(platformId)` - Get position, trust score, total votes
+- `getMarketState(platformId)` - Get position, score, total votes
 - `getVoterPosition(platformId, voter)` - Check voter's owned votes
 - `holdings(platformId, voter)` - Get cost basis and unclaimed yield
 - `marketExistsFor(platformId)` - Check if market exists

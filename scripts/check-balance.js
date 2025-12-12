@@ -75,7 +75,7 @@ async function main() {
           const state = await pmm.getMarketState(platformId);
           console.log(`\nPlatform ${platformId}:`);
           console.log(`  Position: (${state.x}, ${state.y})`);
-          console.log(`  Trust Score: ${(Number(state.trustScore) / 1e18).toFixed(3)}`);
+          console.log(`  Score: ${(Number(state.score) / 1e18).toFixed(3)}`);
           console.log(`  Total Votes: ${state.totalVotes}`);
           console.log(`  Creator: ${await pmm.marketCreator(platformId)}`);
           console.log(`  Volume: ${await pmm.totalVoteVolume(platformId)}`);

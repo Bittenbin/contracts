@@ -91,8 +91,8 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       expect(await pmm.isValidCoordinate(3, largeValue)).to.be.false;
     });
     
-    it("Should calculate trust scores correctly", async function () {
-      // Test various trust scores
+    it("Should calculate scores correctly", async function () {
+      // Test various scores based on y²/(x²+y²)
       const testCases = [
         { x: 4, y: 3, expectedScore: 0.36 }, // 3²/(4²+3²) = 9/25 = 0.36
         { x: 3, y: 4, expectedScore: 0.64 }, // 4²/(3²+4²) = 16/25 = 0.64
@@ -102,17 +102,17 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       ];
       
       for (const { x, y, expectedScore } of testCases) {
-        const trustScore = await pmm.calculateTrustScore(x, y);
-        const scoreDecimal = Number(trustScore) / 1e18;
+        const score = await pmm.calculateScore(x, y);
+        const scoreDecimal = Number(score) / 1e18;
         expect(scoreDecimal).to.be.closeTo(expectedScore, 0.001);
       }
       
       // Edge cases
-      expect(await pmm.calculateTrustScore(0, 0)).to.equal(0);
+      expect(await pmm.calculateScore(0, 0)).to.equal(0);
       
       // Large values should revert
       const largeValue = ethers.parseUnits("1.1", 9);
-      await expect(pmm.calculateTrustScore(largeValue, 3))
+      await expect(pmm.calculateScore(largeValue, 3))
         .to.be.revertedWithCustomError(pmm, "CoordinateTooLarge");
     });
     
@@ -136,7 +136,7 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       const emptyState = await pmm.getMarketState(platformId);
       expect(emptyState.x).to.equal(0);
       expect(emptyState.y).to.equal(0);
-      expect(emptyState.trustScore).to.equal(0);
+      expect(emptyState.score).to.equal(0);
       expect(emptyState.totalVotes).to.equal(0);
       
       // Create market
@@ -147,7 +147,7 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       expect(state.x).to.equal(3);
       expect(state.y).to.equal(4);
       expect(state.totalVotes).to.equal(7);
-      expect(Number(state.trustScore) / 1e18).to.be.closeTo(0.64, 0.001);
+      expect(Number(state.score) / 1e18).to.be.closeTo(0.64, 0.001);
     });
     
     it("Should return protocol fee information", async function () {
@@ -179,10 +179,10 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       expect(state.totalVotes).to.equal(7);
       
       // Check Alice's position
-      const [trustVotes, distrustVotes, exists] = await pmm.getVoterPosition(PLATFORM_ID_1, alice.address);
+      const [yVotes, xVotes, exists] = await pmm.getVoterPosition(PLATFORM_ID_1, alice.address);
       expect(exists).to.be.true;
-      expect(trustVotes).to.equal(4);
-      expect(distrustVotes).to.equal(3);
+      expect(yVotes).to.equal(4);
+      expect(xVotes).to.equal(3);
     });
 
     it("Should allow non-Pythagorean coordinates with fractional hypotenuse cost", async function () {
@@ -291,15 +291,15 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
 
       // Check Bob's position
-      const [trustVotes, distrustVotes, exists] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
+      const [yVotes, xVotes, exists] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
       expect(exists).to.be.true;
-      expect(trustVotes).to.equal(8); // 12 - 4 = 8
-      expect(distrustVotes).to.equal(2); // 5 - 3 = 2
+      expect(yVotes).to.equal(8); // 12 - 4 = 8
+      expect(xVotes).to.equal(2); // 5 - 3 = 2
 
       // Alice still has her original position
-      const [aliceTrust, aliceDistrust] = await pmm.getVoterPosition(PLATFORM_ID_1, alice.address);
-      expect(aliceTrust).to.equal(4);
-      expect(aliceDistrust).to.equal(3);
+      const [aliceY, aliceX] = await pmm.getVoterPosition(PLATFORM_ID_1, alice.address);
+      expect(aliceY).to.equal(4);
+      expect(aliceX).to.equal(3);
     });
 
     it("Should accumulate votes for multiple transactions", async function () {
@@ -310,31 +310,31 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 11, 60);
 
       // Check Bob's accumulated position
-      const [trustVotes, distrustVotes] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
-      expect(trustVotes).to.equal(56); // 8 + 48 = 56
-      expect(distrustVotes).to.equal(8); // 2 + 6 = 8
+      const [yVotes, xVotes] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
+      expect(yVotes).to.equal(56); // 8 + 48 = 56
+      expect(xVotes).to.equal(8); // 2 + 6 = 8
     });
 
     it("Should prevent selling more votes than owned", async function () {
       // Bob votes to (5, 12)
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
       
-      // Bob owns 2 distrust votes, try to sell all of them plus 1 more
-      // Need to find a valid Pythagorean coordinate where Bob would need to sell 3 distrust votes
-      // From (5,12) if we go to (0,5) that's selling 5 distrust votes, which Bob doesn't have
+      // Bob owns 2 x-votes, try to sell all of them plus 1 more
+      // Need to find a valid Pythagorean coordinate where Bob would need to sell 3 x-votes
+      // From (5,12) if we go to (0,5) that's selling 5 x-votes, which Bob doesn't have
       // (0,5) is not valid anyway. Let's use (0,7) or (0,24) or another valid coordinate
       // Actually, we need a coordinate where x < 2 to force overselling
-      // Since Bob only has 2 distrust votes, trying to go to x=0 or x=1 would require selling more than he has
+      // Since Bob only has 2 x-votes, trying to go to x=0 or x=1 would require selling more than he has
       // But we need a valid Pythagorean coordinate. Let's check what works:
-      // If current is (5,12) and Bob has 2 distrust votes
-      // Going to any coordinate with x < 3 would require selling more than 2 distrust votes
+      // If current is (5,12) and Bob has 2 x-votes
+      // Going to any coordinate with x < 3 would require selling more than 2 x-votes
       // We need a valid coordinate like (0,y) where y makes it Pythagorean
       // But (0,y) is not valid. So let's think differently.
       
       // Actually, the issue is that Bob gained votes when moving from (3,4) to (5,12)
-      // Bob gained: 2 distrust, 8 trust
-      // So to make Bob sell more than he owns, we need to reduce distrust by more than 2
-      // Current market is at (5,12), so going to (2,y) would require selling 3 distrust votes
+      // Bob gained: 2 x-votes, 8 y-votes
+      // So to make Bob sell more than he owns, we need to reduce x by more than 2
+      // Current market is at (5,12), so going to (2,y) would require selling 3 x-votes
       // We need (2,y) to be valid Pythagorean. 
       // Let's find a valid coordinate with x=2
       // Checking: 2² + y² = c²
@@ -346,23 +346,23 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       // Try c = 5: 25 - 4 = 21 (not perfect square)
       // Actually, let's use a coordinate that doesn't require x=2
       
-      // Better approach: Bob has 2 distrust votes. Current position is (5,12).
+      // Better approach: Bob has 2 x-votes. Current position is (5,12).
       // To force overselling, we need Bob to try to move to a position that requires
-      // reducing distrust by more than 2. So we need x < 3.
+      // reducing x by more than 2. So we need x < 3.
       // But we also need it to be a valid Pythagorean coordinate.
       // There's no valid Pythagorean coordinate with x < 3 except (0,y) which isn't valid.
       
       // Let's approach this differently. Bob owns exactly what he contributed.
-      // He contributed +2 distrust when moving from (3,4) to (5,12)
-      // So he can reduce distrust by at most 2.
-      // Current market: (5,12). Bob can move to minimum (3,y) for distrust.
+      // He contributed +2 x when moving from (3,4) to (5,12)
+      // So he can reduce x by at most 2.
+      // Current market: (5,12). Bob can move to minimum (3,y) for x.
       // We need to find valid (3,y) coordinate. We know (3,4) is valid.
       
       // Actually, Bob trying to move back to original (3,4) would work but wouldn't exceed his votes.
-      // Let's make Bob try to sell more trust votes than he has instead.
-      // Bob has 8 trust votes. Current y=12. Moving to y < 4 would require selling more than 8.
+      // Let's make Bob try to sell more y-votes than he has instead.
+      // Bob has 8 y-votes. Current y=12. Moving to y < 4 would require selling more than 8.
       // So let's try to move to (x,3) where it's valid.
-      // We know (4,3) is valid. From (5,12) to (4,3) requires reducing trust by 9, but Bob only has 8.
+      // We know (4,3) is valid. From (5,12) to (4,3) requires reducing y by 9, but Bob only has 8.
       
       await expect(pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 4, 3))
         .to.be.revertedWithCustomError(pmm, "InsufficientVotesToSell");
@@ -373,19 +373,19 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 11, 60);
       
-      // Bob now has 8 distrust votes, can sell some
+      // Bob now has 8 x-votes, can sell some
       const bobBalanceBefore = await tenbin.balanceOf(bob.address);
       
       // Move from (11, 60) to (8, 15) - valid Pythagorean coordinate
-      // This reduces distrust by 3 (which Bob can afford) and trust by 45
+      // This reduces x by 3 (which Bob can afford) and y by 45
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 8, 15);
       
       const bobBalanceAfter = await tenbin.balanceOf(bob.address);
       
       // Check Bob's position updated correctly
-      const [trustVotes, distrustVotes] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
-      expect(trustVotes).to.equal(11); // 56 - 45 = 11
-      expect(distrustVotes).to.equal(5); // 8 - 3 = 5
+      const [yVotes, xVotes] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
+      expect(yVotes).to.equal(11); // 56 - 45 = 11
+      expect(xVotes).to.equal(5); // 8 - 3 = 5
       
       // Bob should receive refund
       expect(bobBalanceAfter).to.be.gt(bobBalanceBefore);
@@ -560,9 +560,9 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       expect(bobBalanceAfter).to.equal(bobBalanceBefore);
       
       // Check position updated
-      const [trustVotes, distrustVotes] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
-      expect(trustVotes).to.equal(1); // 5 - 4 = 1
-      expect(distrustVotes).to.equal(9); // 12 - 3 = 9
+      const [yVotes, xVotes] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
+      expect(yVotes).to.equal(1); // 5 - 4 = 1
+      expect(xVotes).to.equal(9); // 12 - 3 = 9
     });
   });
 
@@ -570,54 +570,54 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
     it("Should reproduce the exact spreadsheet example", async function () {
       // Transaction 1: Alice creates at (3, 4) - Cost $5
       await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
-      let [aliceTrust, aliceDistrust] = await pmm.getVoterPosition(PLATFORM_ID_1, alice.address);
-      expect(aliceTrust).to.equal(4);
-      expect(aliceDistrust).to.equal(3);
+      let [aliceY, aliceX] = await pmm.getVoterPosition(PLATFORM_ID_1, alice.address);
+      expect(aliceY).to.equal(4);
+      expect(aliceX).to.equal(3);
 
       // Transaction 2: Bob moves to (5, 12) - Cost $8
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
-      let [bobTrust, bobDistrust] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
-      expect(bobTrust).to.equal(8);
-      expect(bobDistrust).to.equal(2);
+      let [bobY, bobX] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
+      expect(bobY).to.equal(8);
+      expect(bobX).to.equal(2);
 
       // Transaction 3: Bob moves to (11, 60) - Cost $48
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 11, 60);
-      [bobTrust, bobDistrust] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
-      expect(bobTrust).to.equal(56); // 8 + 48
-      expect(bobDistrust).to.equal(8); // 2 + 6
+      [bobY, bobX] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
+      expect(bobY).to.equal(56); // 8 + 48
+      expect(bobX).to.equal(8); // 2 + 6
 
       // Transaction 4: Charlie moves to (110, 600) - Cost $549
       await pmm.connect(charlie).voteOnMarket(PLATFORM_ID_1, 110, 600);
-      let [charlieTrust, charlieDistrust] = await pmm.getVoterPosition(PLATFORM_ID_1, charlie.address);
-      expect(charlieTrust).to.equal(540);
-      expect(charlieDistrust).to.equal(99);
+      let [charlieY, charlieX] = await pmm.getVoterPosition(PLATFORM_ID_1, charlie.address);
+      expect(charlieY).to.equal(540);
+      expect(charlieX).to.equal(99);
 
       // Transaction 5: Bob moves to (450, 600) - Cost $140
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 450, 600);
-      [bobTrust, bobDistrust] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
-      expect(bobTrust).to.equal(56); // unchanged
-      expect(bobDistrust).to.equal(348); // 8 + 340
+      [bobY, bobX] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
+      expect(bobY).to.equal(56); // unchanged
+      expect(bobX).to.equal(348); // 8 + 340
 
       // Transaction 6: David moves to (800, 600) - Cost $250
       await pmm.connect(david).voteOnMarket(PLATFORM_ID_1, 800, 600);
-      let [davidTrust, davidDistrust] = await pmm.getVoterPosition(PLATFORM_ID_1, david.address);
-      expect(davidTrust).to.equal(0);
-      expect(davidDistrust).to.equal(350);
+      let [davidY, davidX] = await pmm.getVoterPosition(PLATFORM_ID_1, david.address);
+      expect(davidY).to.equal(0);
+      expect(davidX).to.equal(350);
 
       // Transaction 7: Alice moves to (1440, 600) - Cost $560
       await pmm.connect(alice).voteOnMarket(PLATFORM_ID_1, 1440, 600);
-      [aliceTrust, aliceDistrust] = await pmm.getVoterPosition(PLATFORM_ID_1, alice.address);
-      expect(aliceTrust).to.equal(4); // unchanged
-      expect(aliceDistrust).to.equal(643); // 3 + 640
+      [aliceY, aliceX] = await pmm.getVoterPosition(PLATFORM_ID_1, alice.address);
+      expect(aliceY).to.equal(4); // unchanged
+      expect(aliceX).to.equal(643); // 3 + 640
 
       // Transaction 8: Bob sells by moving to (1178, 600) - Refund $238
       const bobBalanceBefore = await tenbin.balanceOf(bob.address);
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 1178, 600);
       const bobBalanceAfter = await tenbin.balanceOf(bob.address);
       
-      [bobTrust, bobDistrust] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
-      expect(bobTrust).to.equal(56); // unchanged
-      expect(bobDistrust).to.equal(86); // 348 - 262
+      [bobY, bobX] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
+      expect(bobY).to.equal(56); // unchanged
+      expect(bobX).to.equal(86); // 348 - 262
 
       // Verify refund amount (238 TENBIN - 2.38 fee = 235.62 TENBIN)
       const refund = bobBalanceAfter - bobBalanceBefore;
@@ -653,40 +653,40 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       await pmm.connect(bob).voteOnMarket(platform1, 8, 15);
       
       // Check Bob's positions
-      const [trust1, distrust1, exists1] = await pmm.getVoterPosition(platform1, bob.address);
-      const [trust2, distrust2, exists2] = await pmm.getVoterPosition(platform2, bob.address);
+      const [y1, x1, exists1] = await pmm.getVoterPosition(platform1, bob.address);
+      const [y2, x2, exists2] = await pmm.getVoterPosition(platform2, bob.address);
       
       // Bob should have position on platform1 but not platform2
       expect(exists1).to.be.true;
-      expect(trust1).to.equal(11); // 15 - 4
-      expect(distrust1).to.equal(5); // 8 - 3
+      expect(y1).to.equal(11); // 15 - 4
+      expect(x1).to.equal(5); // 8 - 3
       
       expect(exists2).to.be.false;
-      expect(trust2).to.equal(0);
-      expect(distrust2).to.equal(0);
+      expect(y2).to.equal(0);
+      expect(x2).to.equal(0);
     });
 
     it("Should handle multiple voters correctly", async function () {
       // Alice creates at (3,4)
       await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
       
-      // Bob moves to (5, 12) - gains 2 distrust, 8 trust
+      // Bob moves to (5, 12) - gains 2 x, 8 y
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
       
-      // Charlie moves to (8, 15) - gains 3 distrust, 3 trust  
+      // Charlie moves to (8, 15) - gains 3 x, 3 y  
       await pmm.connect(charlie).voteOnMarket(PLATFORM_ID_1, 8, 15);
       
-      // David moves to (20, 21) - gains 12 distrust, 6 trust
+      // David moves to (20, 21) - gains 12 x, 6 y
       await pmm.connect(david).voteOnMarket(PLATFORM_ID_1, 20, 21);
       
       // Check positions
-      const [bobTrust] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
-      const [charlieTrust] = await pmm.getVoterPosition(PLATFORM_ID_1, charlie.address);
-      const [davidTrust] = await pmm.getVoterPosition(PLATFORM_ID_1, david.address);
-      
-      expect(bobTrust).to.equal(8); // 12 - 4
-      expect(charlieTrust).to.equal(3); // 15 - 12
-      expect(davidTrust).to.equal(6); // 21 - 15
+      const [bobY] = await pmm.getVoterPosition(PLATFORM_ID_1, bob.address);
+      const [charlieY] = await pmm.getVoterPosition(PLATFORM_ID_1, charlie.address);
+      const [davidY] = await pmm.getVoterPosition(PLATFORM_ID_1, david.address);
+
+      expect(bobY).to.equal(8); // 12 - 4
+      expect(charlieY).to.equal(3); // 15 - 12
+      expect(davidY).to.equal(6); // 21 - 15
     });
   });
 
@@ -763,10 +763,10 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
         .to.not.be.reverted;
     });
 
-    it("Should validate coordinates in trust score calculation", async function () {
+    it("Should validate coordinates in score calculation", async function () {
       const largeValue = ethers.parseUnits("1.1", 9);
       
-      await expect(pmm.calculateTrustScore(largeValue, 3))
+      await expect(pmm.calculateScore(largeValue, 3))
         .to.be.revertedWithCustomError(pmm, "CoordinateTooLarge");
     });
 
@@ -982,7 +982,7 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       // Rebalance to (12, 5) - same hypotenuse
       await expect(pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 12, 5))
         .to.emit(pmm, "MarketRebalanced")
-        .withArgs(PLATFORM_ID_1, bob.address, 5, 12, 12, 5, 0, 7); // trust delta = 0, distrust delta = 7
+        .withArgs(PLATFORM_ID_1, bob.address, 5, 12, 12, 5, 0, 7); // yDelta = 0, xDelta = 7
     });
     
     it("Should emit SlippageProtectionApplied event", async function () {
@@ -1612,10 +1612,10 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       expect(state.y).to.equal(4);
       
       // Bob should own the votes
-      const [trustVotes, distrustVotes, exists] = await pmm.getVoterPosition(platformId, bob.address);
+      const [yVotes, xVotes, exists] = await pmm.getVoterPosition(platformId, bob.address);
       expect(exists).to.be.true;
-      expect(trustVotes).to.equal(4);
-      expect(distrustVotes).to.equal(3);
+      expect(yVotes).to.equal(4);
+      expect(xVotes).to.equal(3);
     });
   });
 
@@ -1666,10 +1666,10 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       // Check Alice's holdings
       const holdings = await pmm.holdings(PLATFORM_ID_1, alice.address);
       
-      // Trust cost should reflect the 4 trust votes component
-      // Distrust cost should reflect the 3 distrust votes component
+      // yCost should reflect the 4 y-votes component
+      // xCost should reflect the 3 x-votes component
       // Total should be close to hypotenuse * 1e6 (5 TENBIN)
-      expect(holdings.trustCost + holdings.distrustCost).to.be.closeTo(
+      expect(holdings.yCost + holdings.disyCost).to.be.closeTo(
         5000000n, // 5 TENBIN in wei
         100n // Allow small rounding
       );
@@ -1729,13 +1729,13 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
       
       const holdingsBefore = await pmm.holdings(PLATFORM_ID_1, alice.address);
-      const initialCost = holdingsBefore.trustCost + holdingsBefore.distrustCost;
+      const initialCost = holdingsBefore.yCost + holdingsBefore.disyCost;
       
       // Alice buys more votes
       await pmm.connect(alice).voteOnMarket(PLATFORM_ID_1, 5, 12);
       
       const holdingsAfter = await pmm.holdings(PLATFORM_ID_1, alice.address);
-      const finalCost = holdingsAfter.trustCost + holdingsAfter.distrustCost;
+      const finalCost = holdingsAfter.yCost + holdingsAfter.disyCost;
       
       // Cost basis should increase
       expect(finalCost).to.be.gt(initialCost);
@@ -1753,8 +1753,8 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       const holdingsAfter = await pmm.holdings(PLATFORM_ID_1, alice.address);
       
       // Cost basis should decrease
-      expect(holdingsAfter.trustCost + holdingsAfter.distrustCost)
-        .to.be.lt(holdingsBefore.trustCost + holdingsBefore.distrustCost);
+      expect(holdingsAfter.yCost + holdingsAfter.disyCost)
+        .to.be.lt(holdingsBefore.yCost + holdingsBefore.disyCost);
     });
     
     it("Should not change cost basis on rebalance", async function () {
@@ -1768,8 +1768,8 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       const holdingsAfter = await pmm.holdings(PLATFORM_ID_1, alice.address);
       
       // Total cost basis should remain the same
-      expect(holdingsAfter.trustCost + holdingsAfter.distrustCost)
-        .to.equal(holdingsBefore.trustCost + holdingsBefore.distrustCost);
+      expect(holdingsAfter.yCost + holdingsAfter.disyCost)
+        .to.equal(holdingsBefore.yCost + holdingsBefore.disyCost);
     });
     
     it("Should revert claim if minting not supported", async function () {

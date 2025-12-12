@@ -140,8 +140,8 @@ PMM_ABI = [
         ],
         "name": "holdings",
         "outputs": [
-            {"name": "trustCost", "type": "uint256"},
-            {"name": "distrustCost", "type": "uint256"},
+            {"name": "yCost", "type": "uint256"},
+            {"name": "xCost", "type": "uint256"},
             {"name": "lastAccrual", "type": "uint256"},
             {"name": "unclaimedYield", "type": "uint256"},
         ],
@@ -154,7 +154,7 @@ PMM_ABI = [
         "outputs": [
             {"name": "x", "type": "uint256"},
             {"name": "y", "type": "uint256"},
-            {"name": "trustScore", "type": "uint256"},
+            {"name": "score", "type": "uint256"},
             {"name": "totalVotes", "type": "uint256"},
         ],
         "type": "function",
@@ -173,7 +173,7 @@ PMM_ABI = [
     },
     {
         "inputs": [{"name": "x", "type": "uint256"}, {"name": "y", "type": "uint256"}],
-        "name": "calculateTrustScore",
+        "name": "calculateScore",
         "outputs": [{"name": "", "type": "uint256"}],
         "type": "function",
     },
@@ -319,8 +319,8 @@ PMM_ABI = [
         ],
         "name": "getVoterPosition",
         "outputs": [
-            {"name": "trustVotes", "type": "uint256"},
-            {"name": "distrustVotes", "type": "uint256"},
+            {"name": "yVotes", "type": "uint256"},
+            {"name": "xVotes", "type": "uint256"},
             {"name": "exists", "type": "bool"},
         ],
         "type": "function",
@@ -553,8 +553,8 @@ class CoordinateHelper:
         return hypotenuse_squared <= max_hyp_squared
 
     @staticmethod
-    def calculate_trust_score(x: int, y: int) -> float:
-        """Calculate trust score as a decimal (0 to 1)."""
+    def calculate_score(x: int, y: int) -> float:
+        """Calculate score as a decimal (0 to 1), computed as y²/(x²+y²)."""
         if x == 0 and y == 0:
             return 0.0
         return (y * y) / (x * x + y * y)
@@ -707,7 +707,7 @@ class PMM_Cookbook:
         if not exists:
             return {"exists": False, "platform_id": platform_id}
 
-        x, y, trust_score_raw, total_votes = self.pmm.functions.getMarketState(
+        x, y, score_raw, total_votes = self.pmm.functions.getMarketState(
             platform_id
         ).call()
 
@@ -716,8 +716,8 @@ class PMM_Cookbook:
             "platform_id": platform_id,
             "x": x,
             "y": y,
-            "trust_score": trust_score_raw / 10**18,
-            "trust_score_percent": (trust_score_raw / 10**18) * 100,
+            "score": score_raw / 10**18,
+            "score_percent": (score_raw / 10**18) * 100,
             "total_votes": total_votes,
             "position": f"({x}, {y})",
             "hypotenuse": math.sqrt(x * x + y * y),
@@ -725,7 +725,7 @@ class PMM_Cookbook:
 
     def check_voter_position(self, platform_id: int, voter_address: str) -> Dict:
         """Check a voter's position in a market."""
-        trust_votes, distrust_votes, exists = self.pmm.functions.getVoterPosition(
+        y_votes, x_votes, exists = self.pmm.functions.getVoterPosition(
             platform_id, voter_address
         ).call()
 
@@ -736,27 +736,27 @@ class PMM_Cookbook:
             "exists": True,
             "platform_id": platform_id,
             "voter": voter_address,
-            "trust_votes": trust_votes,
-            "distrust_votes": distrust_votes,
-            "total_votes": trust_votes + distrust_votes,
-            "position": f"({distrust_votes}, {trust_votes})",
+            "y_votes": y_votes,
+            "x_votes": x_votes,
+            "total_votes": y_votes + x_votes,
+            "position": f"({x_votes}, {y_votes})",
         }
 
     def check_holdings(self, platform_id: int, user_address: str) -> Dict:
         """Check user's holdings and unclaimed yield for a market."""
-        trust_cost, distrust_cost, last_accrual, unclaimed_yield = (
+        y_cost, x_cost, last_accrual, unclaimed_yield = (
             self.pmm.functions.holdings(platform_id, user_address).call()
         )
 
         return {
             "platform_id": platform_id,
             "user": user_address,
-            "trust_cost": trust_cost,
-            "trust_cost_formatted": self.format_token(trust_cost),
-            "distrust_cost": distrust_cost,
-            "distrust_cost_formatted": self.format_token(distrust_cost),
-            "total_cost_basis": trust_cost + distrust_cost,
-            "total_cost_basis_formatted": self.format_token(trust_cost + distrust_cost),
+            "y_cost": y_cost,
+            "y_cost_formatted": self.format_token(y_cost),
+            "x_cost": x_cost,
+            "x_cost_formatted": self.format_token(x_cost),
+            "total_cost_basis": y_cost + x_cost,
+            "total_cost_basis_formatted": self.format_token(y_cost + x_cost),
             "last_accrual": last_accrual,
             "unclaimed_yield": unclaimed_yield,
             "unclaimed_yield_formatted": self.format_token(unclaimed_yield),
@@ -805,8 +805,8 @@ class PMM_Cookbook:
             "y": y,
             "valid": is_valid_chain,
             "total_votes": x + y,
-            "trust_score": self.helper.calculate_trust_score(x, y),
-            "trust_score_percent": self.helper.calculate_trust_score(x, y) * 100,
+            "score": self.helper.calculate_score(x, y),
+            "score_percent": self.helper.calculate_score(x, y) * 100,
             "hypotenuse": self.helper.calculate_hypotenuse(x, y),
         }
 
@@ -1058,7 +1058,7 @@ class PMM_Cookbook:
 
         print(f"\nCreating market for platform {platform_id}")
         print(f"Position: ({initial_x}, {initial_y})")
-        print(f"Trust score: {validation['trust_score_percent']:.1f}%")
+        print(f"Score: {validation['score_percent']:.1f}%")
         print(f"Cost: {cost_info['total_cost_formatted']}")
 
         return self._build_and_send_tx(
@@ -1101,7 +1101,7 @@ class PMM_Cookbook:
 
         print(f"\nVoting on platform {platform_id}")
         print(f"Position: ({current_state['x']}, {current_state['y']}) → ({new_x}, {new_y})")
-        print(f"Trust: {current_state['trust_score_percent']:.1f}% → {validation['trust_score_percent']:.1f}%")
+        print(f"Score: {current_state['score_percent']:.1f}% → {validation['score_percent']:.1f}%")
 
         if cost_info["action"] == "buy":
             print(f"Cost: {cost_info['total_cost_formatted']}")

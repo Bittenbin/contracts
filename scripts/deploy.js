@@ -99,16 +99,16 @@ async function main() {
     console.log("1. Create a market for platform ID 1234567890:");
     console.log(`   await pmm.createMarket(1234567890, 3, 4)`);
     console.log("   Cost: sqrt(3² + 4²) = 5 TENBIN + 0.05 fee = 5.05 TENBIN");
-    console.log("   You own: 3 distrust, 4 trust votes\n");
+    console.log("   You own: 3 x-votes, 4 y-votes\n");
     
-    console.log("2. Vote to increase trust:");
+    console.log("2. Vote to increase y:");
     console.log(`   await pmm.voteOnMarket(1234567890, 5, 12)`);
     console.log("   Cost: sqrt(5² + 12²) - sqrt(3² + 4²) = 13 - 5 = 8 TENBIN + fee");
-    console.log("   You gain: 2 distrust, 8 trust votes\n");
+    console.log("   You gain: 2 x-votes, 8 y-votes\n");
     
     console.log("3. Check your position:");
     console.log(`   await pmm.getVoterPosition(1234567890, yourAddress)`);
-    console.log("   Returns: trustVotes, distrustVotes, exists\n");
+    console.log("   Returns: yVotes, xVotes, exists\n");
     
     console.log("4. Sell some votes:");
     console.log(`   await pmm.voteOnMarket(1234567890, 3, 4)`);
