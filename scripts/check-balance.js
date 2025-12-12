@@ -6,7 +6,8 @@ async function main() {
   const [signer] = await ethers.getSigners();
   console.log("Checking balances for:", signer.address);
   console.log("Network:", network.name);
-  console.log("Chain ID:", (await ethers.provider.getNetwork()).chainId);
+  const chainId = (await ethers.provider.getNetwork()).chainId;
+  console.log("Chain ID:", chainId);
   
   // Get ETH balance
   const ethBalance = await ethers.provider.getBalance(signer.address);
@@ -14,17 +15,53 @@ async function main() {
   
   // Try to get TBD balance if deployment exists
   try {
-    // Look for deployment files with new naming pattern
     const deploymentsDir = path.join(__dirname, "../deployments");
-    const deploymentFiles = fs.readdirSync(deploymentsDir)
-      .filter(f => f.startsWith(`deployment-${network.name}`) && f.endsWith('.json'))
-      .sort((a, b) => b.localeCompare(a)); // Sort newest first
+
+    if (!fs.existsSync(deploymentsDir)) {
+      console.log("\nNo deployments directory found:", deploymentsDir);
+      return;
+    }
+
+    const deploymentFiles = fs
+      .readdirSync(deploymentsDir)
+      .filter((f) => f.startsWith("deployment-") && f.endsWith(".json"));
+
+    // Prefer deployments that match the current chainId (if present), otherwise match by network name.
+    const candidates = [];
+    for (const file of deploymentFiles) {
+      const deploymentPath = path.join(deploymentsDir, file);
+      try {
+        const deployment = JSON.parse(fs.readFileSync(deploymentPath, "utf8"));
+        const stat = fs.statSync(deploymentPath);
+        const matchesChainId =
+          deployment.chainId !== undefined && BigInt(deployment.chainId) === chainId;
+        const matchesNetwork = deployment.network === network.name;
+        if (matchesChainId || matchesNetwork) {
+          candidates.push({
+            file,
+            deploymentPath,
+            deployment,
+            mtimeMs: stat.mtimeMs,
+            matchesChainId,
+            matchesNetwork,
+          });
+        }
+      } catch {
+        // Ignore unreadable/bad JSON
+      }
+    }
     
-    if (deploymentFiles.length > 0) {
-      const deploymentPath = path.join(deploymentsDir, deploymentFiles[0]);
-      const deployment = JSON.parse(fs.readFileSync(deploymentPath, "utf8"));
-      
-      console.log(`\nUsing deployment from: ${deployment.timestamp}`);
+    if (candidates.length > 0) {
+      candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
+      // If any candidate matches chainId, prefer those over network-only matches.
+      const chainMatches = candidates.filter((c) => c.matchesChainId);
+      const chosen = (chainMatches.length > 0 ? chainMatches : candidates)[0];
+      const deployment = chosen.deployment;
+
+      console.log(`\nUsing deployment file: ${chosen.file}`);
+      if (deployment.timestamp) {
+        console.log(`Deployment timestamp: ${deployment.timestamp}`);
+      }
       
       const paymentToken = deployment.contracts.PaymentToken;
       // Attempt to use TenbinToken, fallback to generic ERC20 interface name if ABI mismatch
