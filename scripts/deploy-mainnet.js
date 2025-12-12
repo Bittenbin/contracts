@@ -109,12 +109,13 @@ async function main() {
     // Verify deployment
     console.log("\n🔍 Verifying deployment...");
     const paymentToken = await pmm.paymentToken();
-    const protocolFee = await pmm.PROTOCOL_FEE_BASIS_POINTS();
+    const protocolFee = await pmm.protocolFeeBasisPoints();
+    const maxFee = await pmm.MAX_PROTOCOL_FEE_BASIS_POINTS();
     const minVotes = await pmm.MINIMUM_VOTES();
     const owner = await pmm.owner();
     
     console.log("Payment token:", paymentToken);
-    console.log("Protocol fee:", protocolFee.toString(), "basis points");
+    console.log("Protocol fee:", protocolFee.toString(), "basis points (max:", maxFee.toString(), ")");
     console.log("Minimum votes:", minVotes.toString());
     console.log("Contract owner:", owner);
     

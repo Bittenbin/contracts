@@ -51,7 +51,8 @@ describe("Edge Cases and Security Tests", function () {
       expect(await pmm.paymentToken()).to.equal(await tenbin.getAddress());
       expect(await pmm.totalMarkets()).to.equal(0);
       expect(await pmm.accumulatedProtocolFees()).to.equal(0);
-      expect(await pmm.PROTOCOL_FEE_BASIS_POINTS()).to.equal(100);
+      expect(await pmm.protocolFeeBasisPoints()).to.equal(100);
+      expect(await pmm.MAX_PROTOCOL_FEE_BASIS_POINTS()).to.equal(100);
       expect(await pmm.MINIMUM_VOTES()).to.equal(7);
     });
   });

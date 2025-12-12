@@ -50,8 +50,11 @@ interface IMintableERC20 {
 contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgradeable, PausableUpgradeable, ReentrancyGuardUpgradeable {
     
     // Constants
-    uint256 public constant PROTOCOL_FEE_BASIS_POINTS = 100;
+    uint256 public constant MAX_PROTOCOL_FEE_BASIS_POINTS = 100; // Maximum 1%
     uint256 public constant BASIS_POINTS_DENOMINATOR = 10000;
+    
+    // Configurable fee (0-100 basis points, default 100 = 1%)
+    uint256 public protocolFeeBasisPoints;
     uint256 public constant MINIMUM_VOTES = 7;
     uint256 public constant MAX_COORDINATE_VALUE = 1e9;
     uint256 public constant MAX_HYPOTENUSE = 1.5e9;
@@ -147,6 +150,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     event ProtocolFeesWithdrawn(address indexed to, uint256 amount);
     
     event FeeRecipientsUpdated(address indexed ownerRecipient, address indexed protocolRecipient);
+    
+    event ProtocolFeeUpdated(uint256 oldFeeBasisPoints, uint256 newFeeBasisPoints, address indexed updatedBy);
     
     event ProtocolFeesDistributed(
         address indexed ownerRecipient,
@@ -265,6 +270,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     error MarketApplicationExists();
     error MarketApplicationNotFound();
     error MintingNotSupported();
+    error InvalidProtocolFee();
     
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -293,6 +299,9 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         protocolFeeRecipient = 0xb322A547De3308C2426aEa700c8176574E57eEe6;
         
         paymentTokenDecimals = 10 ** IERC20Metadata(_paymentToken).decimals();
+        
+        // Initialize protocol fee to default 1% (100 basis points)
+        protocolFeeBasisPoints = MAX_PROTOCOL_FEE_BASIS_POINTS;
     }
 
     // ============================================================
@@ -444,7 +453,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         }
         uint256 initialHypotenuseScaled = _computeHypotenuseScaled(initialX, initialY);
         uint256 totalPaymentInTokenUnits = _validatePaymentAmount(initialHypotenuseScaled);
-        uint256 protocolFee = (totalPaymentInTokenUnits * PROTOCOL_FEE_BASIS_POINTS) / BASIS_POINTS_DENOMINATOR;
+        uint256 protocolFee = (totalPaymentInTokenUnits * protocolFeeBasisPoints) / BASIS_POINTS_DENOMINATOR;
         uint256 totalPayment = totalPaymentInTokenUnits + protocolFee;
         
         uint256 maxAcceptablePayment = totalPayment + (totalPayment * slippageBasisPoints) / BASIS_POINTS_DENOMINATOR;
@@ -775,7 +784,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         uint256 slippageBasisPoints
     ) internal returns (uint256 protocolFee) {
         uint256 payment = _validatePaymentAmount(hypotenuseIncrease);
-        protocolFee = (payment * PROTOCOL_FEE_BASIS_POINTS) / BASIS_POINTS_DENOMINATOR;
+        protocolFee = (payment * protocolFeeBasisPoints) / BASIS_POINTS_DENOMINATOR;
         uint256 totalPayment = payment + protocolFee;
         
         uint256 maxAcceptablePayment = totalPayment + (totalPayment * slippageBasisPoints) / BASIS_POINTS_DENOMINATOR;
@@ -859,7 +868,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         }
         
         uint256 refundAmount = _validatePaymentAmount(hypotenuseDecrease);
-        protocolFee = (refundAmount * PROTOCOL_FEE_BASIS_POINTS) / BASIS_POINTS_DENOMINATOR;
+        protocolFee = (refundAmount * protocolFeeBasisPoints) / BASIS_POINTS_DENOMINATOR;
         uint256 netRefund = refundAmount - protocolFee;
         
         uint256 minAcceptableRefund = netRefund - (netRefund * slippageBasisPoints) / BASIS_POINTS_DENOMINATOR;
@@ -986,12 +995,14 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
      * @dev Get protocol fee percentage in basis points
      * @return feeBasisPoints The protocol fee in basis points
      * @return feePercentage The protocol fee as a percentage (for display)
+     * @return maxFeeBasisPoints The maximum allowed fee in basis points
      */
-    function getProtocolFeeInfo() external pure returns (
+    function getProtocolFeeInfo() external view returns (
         uint256 feeBasisPoints,
-        uint256 feePercentage
+        uint256 feePercentage,
+        uint256 maxFeeBasisPoints
     ) {
-        return (PROTOCOL_FEE_BASIS_POINTS, PROTOCOL_FEE_BASIS_POINTS / 100);
+        return (protocolFeeBasisPoints, protocolFeeBasisPoints / 100, MAX_PROTOCOL_FEE_BASIS_POINTS);
     }
     
     /**
@@ -1038,7 +1049,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         
         uint256 hypotenuseIncreaseScaled = newHypotenuseScaled - currentHypotenuseScaled;
         uint256 payment = _validatePaymentAmount(hypotenuseIncreaseScaled);
-        uint256 protocolFee = (payment * PROTOCOL_FEE_BASIS_POINTS) / BASIS_POINTS_DENOMINATOR;
+        uint256 protocolFee = (payment * protocolFeeBasisPoints) / BASIS_POINTS_DENOMINATOR;
         expectedPayment = payment + protocolFee;
         maxPaymentWithSlippage = expectedPayment + (expectedPayment * slippageBasisPoints) / BASIS_POINTS_DENOMINATOR;
     }
@@ -1075,7 +1086,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         
         uint256 hypotenuseDecreaseScaled = currentHypotenuseScaled - newHypotenuseScaled;
         uint256 refundAmount = _validatePaymentAmount(hypotenuseDecreaseScaled);
-        uint256 protocolFee = (refundAmount * PROTOCOL_FEE_BASIS_POINTS) / BASIS_POINTS_DENOMINATOR;
+        uint256 protocolFee = (refundAmount * protocolFeeBasisPoints) / BASIS_POINTS_DENOMINATOR;
         expectedRefund = refundAmount - protocolFee;
         minRefundWithSlippage = expectedRefund - (expectedRefund * slippageBasisPoints) / BASIS_POINTS_DENOMINATOR;
     }
@@ -1246,6 +1257,28 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         protocolFeeRecipient = newProtocolRecipient;
         
         emit FeeRecipientsUpdated(newOwnerRecipient, newProtocolRecipient);
+    }
+    
+    /**
+     * @dev Update the protocol fee percentage
+     * @param newFeeBasisPoints New fee in basis points (0-100, where 100 = 1%)
+     * @notice Only callable by owner or protocol fee recipient
+     */
+    function setProtocolFee(uint256 newFeeBasisPoints) external {
+        // Only owner or protocol fee recipient can update the fee
+        if (msg.sender != owner() && msg.sender != protocolFeeRecipient) {
+            revert OwnableUnauthorizedAccount(msg.sender);
+        }
+        
+        // Fee must be between 0% and 1% (0-100 basis points)
+        if (newFeeBasisPoints > MAX_PROTOCOL_FEE_BASIS_POINTS) {
+            revert InvalidProtocolFee();
+        }
+        
+        uint256 oldFee = protocolFeeBasisPoints;
+        protocolFeeBasisPoints = newFeeBasisPoints;
+        
+        emit ProtocolFeeUpdated(oldFee, newFeeBasisPoints, msg.sender);
     }
     
     /**

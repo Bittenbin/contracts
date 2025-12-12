@@ -45,7 +45,7 @@ async function main() {
   // Verify the deployment
   console.log("\nVerifying deployment...");
   console.log("Payment token:", await pmm.paymentToken());
-  console.log("Protocol fee:", await pmm.PROTOCOL_FEE_BASIS_POINTS(), "basis points (1%)");
+  console.log("Protocol fee:", await pmm.protocolFeeBasisPoints(), "basis points (default 1%, max", await pmm.MAX_PROTOCOL_FEE_BASIS_POINTS(), ")");
   console.log("Minimum votes:", await pmm.MINIMUM_VOTES());
   
   // Show fee distribution addresses

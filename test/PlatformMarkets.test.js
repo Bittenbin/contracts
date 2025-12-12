@@ -151,9 +151,10 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
     });
     
     it("Should return protocol fee information", async function () {
-      const [feeBasisPoints, feePercentage] = await pmm.getProtocolFeeInfo();
-      expect(feeBasisPoints).to.equal(100); // 100 basis points
+      const [feeBasisPoints, feePercentage, maxFeeBasisPoints] = await pmm.getProtocolFeeInfo();
+      expect(feeBasisPoints).to.equal(100); // 100 basis points (default)
       expect(feePercentage).to.equal(1); // 1%
+      expect(maxFeeBasisPoints).to.equal(100); // Max 1%
     });
     
     it("Should return default slippage information", async function () {
@@ -1267,7 +1268,7 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
   describe("Platform Market Info", function () {
     it("Should display platform market information", async function () {
       console.log("\n=== Platform Market Info ===");
-      console.log("Protocol Fee:", await pmm.PROTOCOL_FEE_BASIS_POINTS(), "basis points (1%)");
+      console.log("Protocol Fee:", await pmm.protocolFeeBasisPoints(), "basis points (default 1%)");
       console.log("Minimum Votes:", await pmm.MINIMUM_VOTES());
       
       // Check fee recipients
@@ -1275,6 +1276,202 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       console.log("Owner Fee Recipient:", feeInfo.ownerRecipient);
       console.log("Protocol Fee Recipient:", feeInfo.protocolRecipient);
       console.log("Accumulated Fees:", ethers.formatUnits(feeInfo.pendingFees, 6), "TENBIN");
+    });
+  });
+
+  describe("Configurable Protocol Fee", function () {
+    it("Should have default protocol fee of 1% (100 basis points)", async function () {
+      expect(await pmm.protocolFeeBasisPoints()).to.equal(100);
+      expect(await pmm.MAX_PROTOCOL_FEE_BASIS_POINTS()).to.equal(100);
+    });
+
+    it("Should allow owner to set protocol fee within range (0-100 basis points)", async function () {
+      // Set to 0.5% (50 basis points)
+      await expect(pmm.connect(owner).setProtocolFee(50))
+        .to.emit(pmm, "ProtocolFeeUpdated")
+        .withArgs(100, 50, owner.address);
+      
+      expect(await pmm.protocolFeeBasisPoints()).to.equal(50);
+      
+      // Set to 0%
+      await expect(pmm.connect(owner).setProtocolFee(0))
+        .to.emit(pmm, "ProtocolFeeUpdated")
+        .withArgs(50, 0, owner.address);
+      
+      expect(await pmm.protocolFeeBasisPoints()).to.equal(0);
+      
+      // Set back to 1%
+      await expect(pmm.connect(owner).setProtocolFee(100))
+        .to.emit(pmm, "ProtocolFeeUpdated")
+        .withArgs(0, 100, owner.address);
+      
+      expect(await pmm.protocolFeeBasisPoints()).to.equal(100);
+    });
+
+    it("Should allow protocol fee recipient to set protocol fee", async function () {
+      const protocolRecipient = await pmm.protocolFeeRecipient();
+      
+      // Find the signer matching the protocol recipient or update it first
+      await pmm.connect(owner).updateFeeRecipients(await pmm.ownerFeeRecipient(), alice.address);
+      
+      // Alice (now protocol recipient) should be able to set fee
+      await expect(pmm.connect(alice).setProtocolFee(75))
+        .to.emit(pmm, "ProtocolFeeUpdated")
+        .withArgs(100, 75, alice.address);
+      
+      expect(await pmm.protocolFeeBasisPoints()).to.equal(75);
+    });
+
+    it("Should reject protocol fee above 1% (100 basis points)", async function () {
+      await expect(pmm.connect(owner).setProtocolFee(101))
+        .to.be.revertedWithCustomError(pmm, "InvalidProtocolFee");
+      
+      await expect(pmm.connect(owner).setProtocolFee(500))
+        .to.be.revertedWithCustomError(pmm, "InvalidProtocolFee");
+      
+      await expect(pmm.connect(owner).setProtocolFee(10000))
+        .to.be.revertedWithCustomError(pmm, "InvalidProtocolFee");
+    });
+
+    it("Should reject protocol fee change from unauthorized address", async function () {
+      // Non-owner, non-protocol-recipient cannot set fee
+      await expect(pmm.connect(bob).setProtocolFee(50))
+        .to.be.revertedWithCustomError(pmm, "OwnableUnauthorizedAccount");
+      
+      await expect(pmm.connect(charlie).setProtocolFee(0))
+        .to.be.revertedWithCustomError(pmm, "OwnableUnauthorizedAccount");
+    });
+
+    it("Should apply new fee rate to market creation", async function () {
+      // Set fee to 0.5%
+      await pmm.connect(owner).setProtocolFee(50);
+      
+      const platformId = getUniquePlatformId();
+      const aliceBalanceBefore = await tenbin.balanceOf(alice.address);
+      
+      // Create market at (3, 4) - hypotenuse = 5
+      // Cost = 5 TENBIN + 0.5% fee = 5.025 TENBIN
+      await pmm.connect(alice).createMarket(platformId, 3, 4);
+      
+      const aliceBalanceAfter = await tenbin.balanceOf(alice.address);
+      const spent = aliceBalanceBefore - aliceBalanceAfter;
+      
+      // 5 TENBIN + 0.025 fee = 5.025 TENBIN = 5,025,000 units
+      expect(spent).to.equal(5025000n);
+    });
+
+    it("Should apply new fee rate to voting", async function () {
+      await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
+      
+      // Set fee to 0%
+      await pmm.connect(owner).setProtocolFee(0);
+      
+      const bobBalanceBefore = await tenbin.balanceOf(bob.address);
+      
+      // Vote from (3, 4) to (5, 12) - hypotenuse change = 13 - 5 = 8
+      // Cost = 8 TENBIN + 0% fee = 8.00 TENBIN
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
+      
+      const bobBalanceAfter = await tenbin.balanceOf(bob.address);
+      const spent = bobBalanceBefore - bobBalanceAfter;
+      
+      // 8 TENBIN + 0 fee = 8.00 TENBIN = 8,000,000 units
+      expect(spent).to.equal(8000000n);
+    });
+
+    it("Should apply new fee rate to selling (refunds)", async function () {
+      // Create and vote at default 1% fee
+      await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
+      
+      // Set fee to 0%
+      await pmm.connect(owner).setProtocolFee(0);
+      
+      const bobBalanceBefore = await tenbin.balanceOf(bob.address);
+      
+      // Sell back to (3, 4) - refund 8 TENBIN - 0% fee = 8.00 TENBIN
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 3, 4);
+      
+      const bobBalanceAfter = await tenbin.balanceOf(bob.address);
+      const received = bobBalanceAfter - bobBalanceBefore;
+      
+      // 8 TENBIN - 0 fee = 8.00 TENBIN = 8,000,000 units
+      expect(received).to.equal(8000000n);
+    });
+
+    it("Should correctly calculate fees with various fee rates", async function () {
+      const testFees = [0, 25, 50, 75, 100]; // 0%, 0.25%, 0.5%, 0.75%, 1%
+      
+      for (const feeBP of testFees) {
+        await pmm.connect(owner).setProtocolFee(feeBP);
+        
+        const platformId = getUniquePlatformId();
+        const balanceBefore = await tenbin.balanceOf(alice.address);
+        
+        await pmm.connect(alice).createMarket(platformId, 3, 4);
+        
+        const balanceAfter = await tenbin.balanceOf(alice.address);
+        const spent = balanceBefore - balanceAfter;
+        
+        // Expected: 5 TENBIN * (1 + feeBP/10000)
+        const baseAmount = 5000000n; // 5 TENBIN
+        const expectedFee = (baseAmount * BigInt(feeBP)) / 10000n;
+        const expectedTotal = baseAmount + expectedFee;
+        
+        expect(spent).to.equal(expectedTotal);
+      }
+    });
+
+    it("Should track accumulated fees correctly with different fee rates", async function () {
+      // Start fresh - accumulated fees are 0
+      const initialFees = await pmm.accumulatedProtocolFees();
+      
+      // Create market at 1% fee
+      await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
+      // Fee = 5 * 0.01 = 0.05 TENBIN = 50,000 units
+      
+      expect(await pmm.accumulatedProtocolFees()).to.equal(initialFees + 50000n);
+      
+      // Set fee to 0%
+      await pmm.connect(owner).setProtocolFee(0);
+      
+      // Vote - should add 0 fees
+      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
+      
+      expect(await pmm.accumulatedProtocolFees()).to.equal(initialFees + 50000n);
+      
+      // Set fee to 0.5%
+      await pmm.connect(owner).setProtocolFee(50);
+      
+      // Vote again - hypotenuse change = sqrt(11^2 + 60^2) - sqrt(5^2 + 12^2) = 61 - 13 = 48
+      // Fee = 48 * 0.005 = 0.24 TENBIN = 240,000 units
+      await pmm.connect(charlie).voteOnMarket(PLATFORM_ID_1, 11, 60);
+      
+      expect(await pmm.accumulatedProtocolFees()).to.equal(initialFees + 50000n + 240000n);
+    });
+
+    it("Should return updated fee info after fee change", async function () {
+      // Default fee
+      let [feeBasisPoints, feePercentage, maxFeeBasisPoints] = await pmm.getProtocolFeeInfo();
+      expect(feeBasisPoints).to.equal(100);
+      expect(feePercentage).to.equal(1);
+      expect(maxFeeBasisPoints).to.equal(100);
+      
+      // Change fee to 50 basis points
+      await pmm.connect(owner).setProtocolFee(50);
+      
+      [feeBasisPoints, feePercentage, maxFeeBasisPoints] = await pmm.getProtocolFeeInfo();
+      expect(feeBasisPoints).to.equal(50);
+      expect(feePercentage).to.equal(0); // Integer division 50/100 = 0
+      expect(maxFeeBasisPoints).to.equal(100);
+      
+      // Change fee to 0
+      await pmm.connect(owner).setProtocolFee(0);
+      
+      [feeBasisPoints, feePercentage, maxFeeBasisPoints] = await pmm.getProtocolFeeInfo();
+      expect(feeBasisPoints).to.equal(0);
+      expect(feePercentage).to.equal(0);
+      expect(maxFeeBasisPoints).to.equal(100);
     });
   });
 

@@ -173,11 +173,23 @@ PMM_ABI = [
         "outputs": [{"name": "", "type": "uint256"}],
         "type": "function",
     },
-    # Constants
+    # Fee configuration
     {
         "inputs": [],
-        "name": "PROTOCOL_FEE_BASIS_POINTS",
+        "name": "MAX_PROTOCOL_FEE_BASIS_POINTS",
         "outputs": [{"name": "", "type": "uint256"}],
+        "type": "function",
+    },
+    {
+        "inputs": [],
+        "name": "protocolFeeBasisPoints",
+        "outputs": [{"name": "", "type": "uint256"}],
+        "type": "function",
+    },
+    {
+        "inputs": [{"name": "newFeeBasisPoints", "type": "uint256"}],
+        "name": "setProtocolFee",
+        "outputs": [],
         "type": "function",
     },
     {
@@ -615,7 +627,10 @@ class PMM_Cookbook:
         # Try to get contract constants
         try:
             self.protocol_fee_basis_points = (
-                self.pmm.functions.PROTOCOL_FEE_BASIS_POINTS().call()
+                self.pmm.functions.protocolFeeBasisPoints().call()
+            )
+            self.max_protocol_fee_basis_points = (
+                self.pmm.functions.MAX_PROTOCOL_FEE_BASIS_POINTS().call()
             )
             self.minimum_votes = self.pmm.functions.MINIMUM_VOTES().call()
             self.default_slippage_basis_points = (
@@ -624,6 +639,7 @@ class PMM_Cookbook:
         except:
             # Defaults if contract not deployed
             self.protocol_fee_basis_points = 100  # 1%
+            self.max_protocol_fee_basis_points = 100  # Max 1%
             self.minimum_votes = 7
             self.default_slippage_basis_points = 250  # 2.5%
 
@@ -851,6 +867,21 @@ class PMM_Cookbook:
                 "current_account": self.account.address if self.account else None,
                 "is_owner": False,
             }
+
+    def get_protocol_fee_info(self) -> Dict:
+        """Get current protocol fee information."""
+        try:
+            current_fee = self.pmm.functions.protocolFeeBasisPoints().call()
+            max_fee = self.pmm.functions.MAX_PROTOCOL_FEE_BASIS_POINTS().call()
+
+            return {
+                "current_fee_basis_points": current_fee,
+                "current_fee_percent": current_fee / 100,
+                "max_fee_basis_points": max_fee,
+                "max_fee_percent": max_fee / 100,
+            }
+        except Exception as e:
+            return {"error": str(e)}
 
     def check_accumulated_fees(self) -> Dict:
         """Check accumulated protocol fees."""
@@ -1132,6 +1163,24 @@ class PMM_Cookbook:
                 gas=200000
             )
 
+    def set_protocol_fee(self, fee_basis_points: int) -> str:
+        """Set the protocol fee (owner or protocol recipient only).
+        
+        Args:
+            fee_basis_points: Fee in basis points (0-100, where 100 = 1%)
+        """
+        if not self.account:
+            raise ValueError("Private key required for transactions")
+
+        if fee_basis_points > 100:
+            raise ValueError("Fee cannot exceed 100 basis points (1%)")
+
+        print(f"\n⚙️ Setting protocol fee to {fee_basis_points} basis points ({fee_basis_points/100}%)")
+        return self._build_and_send_tx(
+            self.pmm.functions.setProtocolFee(fee_basis_points),
+            gas=100000
+        )
+
 
 # ==================== CLI Interface ====================
 
@@ -1145,6 +1194,7 @@ def main():
         print("  get-token-info                 - Get TENBIN token info")
         print("  health                         - Check contract health")
         print("  yield-rate                     - Get current yield rate")
+        print("  fee-info                       - Get protocol fee info")
         print("  create-wallet                  - Generate new wallet")
         print("\n💡 This is for BASE SEPOLIA TESTNET")
         print("   Get test ETH from: https://www.alchemy.com/faucets/base-sepolia")
@@ -1178,6 +1228,12 @@ def main():
     elif command == "yield-rate":
         result = cookbook.get_current_yield_rate()
         print("\nYield Rate:")
+        for key, value in result.items():
+            print(f"  {key}: {value}")
+
+    elif command == "fee-info":
+        result = cookbook.get_protocol_fee_info()
+        print("\nProtocol Fee Info:")
         for key, value in result.items():
             print(f"  {key}: {value}")
 

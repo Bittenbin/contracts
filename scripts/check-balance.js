@@ -42,7 +42,7 @@ async function main() {
       const pmm = await ethers.getContractAt("PythagoreanMarketMaker", deployment.contracts.PythagoreanMarketMaker);
       
       console.log("\n=== Platform Market Info ===");
-      console.log("Protocol Fee:", await pmm.PROTOCOL_FEE_BASIS_POINTS(), "basis points (1%)");
+      console.log("Protocol Fee:", await pmm.protocolFeeBasisPoints(), "basis points (max:", await pmm.MAX_PROTOCOL_FEE_BASIS_POINTS(), ")");
       console.log("Minimum Votes:", await pmm.MINIMUM_VOTES());
       
       // Get fee recipients

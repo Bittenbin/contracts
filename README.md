@@ -26,7 +26,7 @@ A decentralized reputation system using coordinate-based markets to track trust 
 PMM creates reputation markets where:
 - Each market exists at coordinates (x, y) where **x = distrust votes** and **y = trust votes**
 - Coordinates are valid when x>0, y>0 within bounds (max 1 billion each)
-- **Cost = sqrt(x² + y²) TENBIN** with 1% protocol fee
+- **Cost = sqrt(x² + y²) TENBIN** with configurable protocol fee (0-1%, default 1%)
 - Individual vote tracking ensures you can only sell votes you own
 - Built-in MEV protection with 2.5% default slippage tolerance
 - **Yield accrual** on held positions based on market count
@@ -244,9 +244,10 @@ Use `isValidCoordinate(x, y)` to check validity.
 
 ## Fee Distribution
 
-- 1% protocol fee on all transactions
+- **Configurable protocol fee**: 0% to 1% (default 1%)
+- Fee can be adjusted by owner or protocol fee recipient via `setProtocolFee()`
 - Split 50/50 between owner and protocol recipients
-- Owner functions: `distributeProtocolFees()`, `updateFeeRecipients()`
+- Owner functions: `distributeProtocolFees()`, `updateFeeRecipients()`, `setProtocolFee()`
 
 ```javascript
 // Check accumulated fees
@@ -262,6 +263,11 @@ await pmm.distributeProtocolFees(ethers.parseUnits("100", 6));
 // Individual withdrawals
 await pmm.withdrawToOwner(amount);
 await pmm.withdrawToProtocol(amount);
+
+// Set protocol fee (owner or protocol recipient)
+await pmm.setProtocolFee(50);  // Set to 0.5% (50 basis points)
+await pmm.setProtocolFee(0);   // Set to 0%
+await pmm.setProtocolFee(100); // Set to 1% (maximum)
 ```
 
 ## Safety Features

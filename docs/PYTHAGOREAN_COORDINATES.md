@@ -39,16 +39,31 @@ When **creating** a market, additional rules apply:
 The cost of a market position is determined by its **hypotenuse** (distance from origin):
 
 ```
-Cost = sqrt(x² + y²) TENBIN + 1% protocol fee
+Cost = sqrt(x² + y²) TENBIN + protocol fee
 ```
 
-### Transaction Types
+### Configurable Protocol Fee
+
+The protocol fee is **configurable** by the owner or protocol fee recipient:
+- **Range**: 0% to 1% (0-100 basis points)
+- **Default**: 1% (100 basis points)
+- **Updatable by**: Contract owner OR protocol fee recipient
+
+```solidity
+// Set protocol fee to 0.5%
+pmm.setProtocolFee(50); // 50 basis points = 0.5%
+
+// Set protocol fee to 0%
+pmm.setProtocolFee(0);
+```
+
+### Transaction Types (at default 1% fee)
 
 | Action | Formula | Example |
 |--------|---------|---------|
-| **Create** | `sqrt(x² + y²) * 1.01` | (3,4) → 5.05 TENBIN |
-| **Buy** | `(newHyp - currentHyp) * 1.01` | (3,4)→(5,12) = 8.08 TENBIN |
-| **Sell** | `(currentHyp - newHyp) * 0.99` | (5,12)→(3,4) = 7.92 TENBIN refund |
+| **Create** | `sqrt(x² + y²) * (1 + fee%)` | (3,4) → 5.05 TENBIN |
+| **Buy** | `(newHyp - currentHyp) * (1 + fee%)` | (3,4)→(5,12) = 8.08 TENBIN |
+| **Sell** | `(currentHyp - newHyp) * (1 - fee%)` | (5,12)→(3,4) = 7.92 TENBIN refund |
 | **Rebalance** | 0 (same hypotenuse) | (5,12)→(12,5) = 0 TENBIN |
 
 ### Fractional Hypotenuse Handling
@@ -189,7 +204,8 @@ These have integer hypotenuse, making costs exact:
 | MAX_COORDINATE_VALUE | 1,000,000,000 | Max x or y value |
 | MAX_HYPOTENUSE | 1,500,000,000 | Max sqrt(x² + y²) |
 | MINIMUM_VOTES | 7 | Min x + y for creation |
-| PROTOCOL_FEE_BASIS_POINTS | 100 | 1% fee on transactions |
+| MAX_PROTOCOL_FEE_BASIS_POINTS | 100 | Maximum 1% fee on transactions |
+| protocolFeeBasisPoints | 0-100 | Current fee (configurable, default 100) |
 | DEFAULT_SLIPPAGE_BASIS_POINTS | 250 | 2.5% default slippage |
 
 ## Contract Functions Reference

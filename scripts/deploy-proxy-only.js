@@ -46,11 +46,12 @@ async function main() {
   
   const paymentToken = await pmm.paymentToken();
   const owner = await pmm.owner();
-  const protocolFee = await pmm.PROTOCOL_FEE_BASIS_POINTS();
+  const protocolFee = await pmm.protocolFeeBasisPoints();
+  const maxFee = await pmm.MAX_PROTOCOL_FEE_BASIS_POINTS();
   
   console.log("Payment token:", paymentToken);
   console.log("Contract owner:", owner);
-  console.log("Protocol fee:", protocolFee.toString(), "basis points");
+  console.log("Protocol fee:", protocolFee.toString(), "basis points (max:", maxFee.toString(), ")");
   console.log("Owner fee recipient:", await pmm.ownerFeeRecipient());
   console.log("Protocol fee recipient:", await pmm.protocolFeeRecipient());
 
