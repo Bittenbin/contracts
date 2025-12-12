@@ -1,8 +1,8 @@
 const { ethers } = require("hardhat");
 
 // Already deployed contracts
-const PMM_IMPLEMENTATION = "0x98a05820ca7e18B70F0ad8A2D8B225aB76bd4D75";
-const TOKEN_ADDRESS = "0x420331D6396B7290B57Ac4633983FC9a95F9913C";
+const PMM_IMPLEMENTATION = "0xe735BEe34055C071a918E762B3E46c53F89ea274";
+const TOKEN_ADDRESS = "0xAEe7CdeEB72D645Fc9598d4AF47C43303A6c699f";
 
 async function main() {
   console.log("=================================");

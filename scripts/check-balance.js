@@ -71,12 +71,48 @@ async function main() {
       } catch {
         tenbin = await ethers.getContractAt("IERC20", paymentToken);
       }
+
+      // Token sanity checks (best-effort; some fields only exist on TenbinToken)
+      console.log("\n=== Token Sanity Checks ===");
+      try {
+        const name = await tenbin.name();
+        const symbol = await tenbin.symbol();
+        const decimals = await tenbin.decimals();
+        const totalSupply = await tenbin.totalSupply();
+        console.log("Token:", `${name} (${symbol})`);
+        console.log("Decimals:", decimals.toString());
+        console.log("Total Supply:", ethers.formatUnits(totalSupply, decimals), symbol);
+        // Expected initial supply for Tenbin Dollar is 11,110,000 (6 decimals)
+        if (decimals === 6n && totalSupply !== 11110000n * 10n ** 6n) {
+          console.log("⚠️  Unexpected totalSupply (expected 11,110,000.000000)");
+        }
+      } catch (e) {
+        console.log("Could not read ERC20 metadata/totalSupply:", e.message);
+      }
       
       const tenbinBalance = await tenbin.balanceOf(signer.address);
       console.log(`TBD Balance: ${ethers.formatUnits(tenbinBalance, 6)} TBD`);
       
       // Get PMM contract
       const pmm = await ethers.getContractAt("PythagoreanMarketMaker", deployment.contracts.PythagoreanMarketMaker);
+
+      // Verify PMM is configured to use this token
+      try {
+        const pmmToken = await pmm.paymentToken();
+        console.log("\nPMM.paymentToken():", pmmToken);
+        console.log("Matches deployment token:", pmmToken.toLowerCase() === paymentToken.toLowerCase());
+      } catch (e) {
+        console.log("Could not read PMM.paymentToken():", e.message);
+      }
+
+      // Verify token minting rights are assigned to PMM (only works with TenbinToken ABI)
+      try {
+        const minter = await tenbin.minter();
+        console.log("Token minter:", minter);
+        console.log("PMM is token minter:", minter.toLowerCase() === (await pmm.getAddress()).toLowerCase());
+      } catch (e) {
+        // If IERC20 fallback is used, `minter()` won't exist.
+      }
       
       console.log("\n=== Platform Market Info ===");
       console.log("Protocol Fee:", await pmm.protocolFeeBasisPoints(), "basis points (max:", await pmm.MAX_PROTOCOL_FEE_BASIS_POINTS(), ")");
@@ -95,7 +131,7 @@ async function main() {
         
         if (totalMarkets > 0) {
           const yieldRate = await pmm.currentAnnualYieldWad();
-          console.log("Current Annual Yield Rate:", (Number(yieldRate) / 1e18 * 100).toFixed(2) + "%");
+          console.log("Current Annual Yield Rate:", (Number(yieldRate) / 1e18 * 100).toFixed(6) + "%");
         }
       } catch (e) {
         // totalMarkets or yield functions may not exist in older versions

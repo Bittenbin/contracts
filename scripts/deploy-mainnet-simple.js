@@ -1,7 +1,7 @@
 const { ethers } = require("hardhat");
 const readline = require("readline");
 
-const TOKEN_ADDRESS = process.env.PAYMENT_TOKEN || "0x420331D6396B7290B57Ac4633983FC9a95F9913C";
+const TOKEN_ADDRESS = process.env.PAYMENT_TOKEN || "0xAEe7CdeEB72D645Fc9598d4AF47C43303A6c699f";
 
 const rl = readline.createInterface({
   input: process.stdin,

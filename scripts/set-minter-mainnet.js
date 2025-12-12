@@ -1,7 +1,7 @@
 const { ethers } = require("hardhat");
 
-const TOKEN_ADDRESS = "0x420331D6396B7290B57Ac4633983FC9a95F9913C";
-const PMM_PROXY_ADDRESS = "0x92AcC35FE215a065146F93132cF27D5C3E39D826";
+const TOKEN_ADDRESS = "0xAEe7CdeEB72D645Fc9598d4AF47C43303A6c699f";
+const PMM_PROXY_ADDRESS = "0xff763ea9508Be30840edB942D4ffDEAaa4Ec9FEc";
 
 async function main() {
   console.log("=================================");

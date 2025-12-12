@@ -5,10 +5,10 @@ A decentralized reputation system using coordinate-based markets to track votes 
 ## 🚀 Live Deployments
 
 ### Base Mainnet
-- **PMM Contract**: [`0x92AcC35FE215a065146F93132cF27D5C3E39D826`](https://basescan.org/address/0x92AcC35FE215a065146F93132cF27D5C3E39D826)
-- **Token (legacy)**: [`0x420331D6396B7290B57Ac4633983FC9a95F9913C`](https://basescan.org/address/0x420331D6396B7290B57Ac4633983FC9a95F9913C)
+- **PMM Contract**: [`0xff763ea9508Be30840edB942D4ffDEAaa4Ec9FEc`](https://basescan.org/address/0xff763ea9508Be30840edB942D4ffDEAaa4Ec9FEc)
+- **Token (TBD)**: [`0xAEe7CdeEB72D645Fc9598d4AF47C43303A6c699f`](https://basescan.org/address/0xAEe7CdeEB72D645Fc9598d4AF47C43303A6c699f)
 - **Chain ID**: 8453
-- **Deployed**: November 26, 2025
+- **Deployed**: December 12, 2025
 - **Explorer**: [Basescan](https://basescan.org)
 
 ### Base Sepolia Testnet

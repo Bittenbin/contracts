@@ -7,9 +7,8 @@ Complete guide for interacting with PMM on Base Mainnet
 ⚠️  All transactions use real money. Be careful!
 
 Contract Addresses:
-# TODO: Update these addresses once contracts are deployed on Base Mainnet
-- PythagoreanMarketMaker: TODO
-- Tenbin Dollar (TBD) Token: TODO
+- PythagoreanMarketMaker: 0xff763ea9508Be30840edB942D4ffDEAaa4Ec9FEc
+- Tenbin Dollar (TBD) Token: 0xAEe7CdeEB72D645Fc9598d4AF47C43303A6c699f
 - Owner Fee Recipient: 0x2dfc776B09234f617DFc38Cb8De1BB2B0B7C4E5B
 - Protocol Fee Recipient: 0xb322A547De3308C2426aEa700c8176574E57eEe6
 
@@ -43,9 +42,9 @@ BASE_MAINNET_RPC = (
 )
 CHAIN_ID = 8453
 
-# Base Mainnet Deployed Addresses (November 26, 2025)
-PMM_ADDRESS = "0x92AcC35FE215a065146F93132cF27D5C3E39D826"
-TOKEN_ADDRESS = "0x420331D6396B7290B57Ac4633983FC9a95F9913C"
+# Base Mainnet Deployed Addresses (December 12, 2025)
+PMM_ADDRESS = "0xff763ea9508Be30840edB942D4ffDEAaa4Ec9FEc"
+TOKEN_ADDRESS = "0xAEe7CdeEB72D645Fc9598d4AF47C43303A6c699f"
 
 PMM_ABI = [
     # Market Creation
