@@ -1,7 +1,7 @@
 const { ethers } = require("hardhat");
 const readline = require("readline");
 
-const TENBIN_ADDRESS = process.env.PAYMENT_TOKEN || "0x420331D6396B7290B57Ac4633983FC9a95F9913C";
+const TOKEN_ADDRESS = process.env.PAYMENT_TOKEN || "0x420331D6396B7290B57Ac4633983FC9a95F9913C";
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -31,7 +31,7 @@ async function main() {
   console.log("Network: Base Mainnet");
   console.log("Deployer:", deployer.address);
   console.log("Balance:", ethers.formatEther(balance), "ETH");
-  console.log("TENBIN Address:", TENBIN_ADDRESS);
+  console.log("Token Address:", TOKEN_ADDRESS);
   console.log("\n⚠️  IMPORTANT: This is a MAINNET deployment!");
   console.log("⚠️  This deploys PMM as NON-UPGRADEABLE for simplicity.");
   
@@ -41,13 +41,13 @@ async function main() {
     process.exit(1);
   }
 
-  // Verify TENBIN contract exists
-  const tenbinCode = await ethers.provider.getCode(TENBIN_ADDRESS);
+  // Verify token contract exists
+  const tenbinCode = await ethers.provider.getCode(TOKEN_ADDRESS);
   if (tenbinCode === "0x") {
-    console.error("\n❌ ERROR: TENBIN contract not found at provided address!");
+    console.error("\n❌ ERROR: Token contract not found at provided address!");
     process.exit(1);
   }
-  console.log("✅ TENBIN contract verified at", TENBIN_ADDRESS);
+  console.log("✅ Token contract verified at", TOKEN_ADDRESS);
 
   // Get user confirmation
   const answer = await question("\n🚀 Do you want to proceed? (yes/no): ");
@@ -78,12 +78,12 @@ async function main() {
 
     // Initialize the contract
     console.log("\n📦 Initializing PMM...");
-    const initTx = await pmm.initialize(TENBIN_ADDRESS, {
+    const initTx = await pmm.initialize(TOKEN_ADDRESS, {
       gasLimit: 500000
     });
     console.log("TX Hash:", initTx.hash);
     await initTx.wait();
-    console.log("✅ PMM initialized with TENBIN:", TENBIN_ADDRESS);
+    console.log("✅ PMM initialized with token:", TOKEN_ADDRESS);
 
     // Verify deployment
     console.log("\n🔍 Verifying deployment...");
@@ -110,7 +110,7 @@ async function main() {
       chainId: 8453,
       contracts: {
         PythagoreanMarketMaker: pmmAddress,
-        PaymentToken: TENBIN_ADDRESS
+        PaymentToken: TOKEN_ADDRESS
       },
       deployer: deployer.address,
       deploymentBlock: await ethers.provider.getBlockNumber(),
@@ -132,7 +132,7 @@ async function main() {
     console.log("=================================");
     
     console.log("\n📋 Contract Addresses:");
-    console.log("TENBIN:", TENBIN_ADDRESS);
+    console.log("TOKEN:", TOKEN_ADDRESS);
     console.log("PMM:", pmmAddress);
     
     console.log("\n⚠️  IMPORTANT: Set PMM as TBD minter!");
@@ -141,7 +141,7 @@ async function main() {
     
     console.log("\n🔗 View on Basescan:");
     console.log(`   https://basescan.org/address/${pmmAddress}`);
-    console.log(`   https://basescan.org/address/${TENBIN_ADDRESS}`);
+    console.log(`   https://basescan.org/address/${TOKEN_ADDRESS}`);
     
   } catch (error) {
     console.error("\n❌ Deployment failed:", error.message);

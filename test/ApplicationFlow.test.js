@@ -23,7 +23,7 @@ describe("Application Workflow", function () {
     }
   });
 
-  it("Applicant pays 10 TENBIN fee; owner can approve; market starts at (0,0); first trade sets coordinate", async function () {
+  it("Applicant pays 10 TBD fee; owner can approve; market starts at (0,0); first trade sets coordinate", async function () {
     const platformId = Math.floor(Math.random() * 1e12);
     const feeUnits = ethers.parseUnits("10", 6);
 

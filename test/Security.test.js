@@ -19,7 +19,7 @@ describe("Security and Exploit Prevention", function () {
   beforeEach(async function () {
     [owner, attacker, victim, alice, bob] = await ethers.getSigners();
 
-    // Deploy TENBIN token
+    // Deploy TBD token
     const TenbinToken = await ethers.getContractFactory("TenbinToken");
     tenbin = await TenbinToken.deploy(owner.address);
     await tenbin.waitForDeployment();
@@ -160,18 +160,18 @@ describe("Security and Exploit Prevention", function () {
       const balanceAfter = await tenbin.balanceOf(attacker.address);
       const cost = balanceBefore - balanceAfter;
       
-      // They have to pay 5.05 TENBIN - not free squatting
+      // They have to pay 5.05 TBD - not free squatting
       expect(cost).to.equal(5050000n);
     });
 
     it("Should prevent free coordinate reservation via application", async function () {
-      // Even application costs 10 TENBIN
+      // Even application costs 10 TBD
       const balanceBefore = await tenbin.balanceOf(attacker.address);
       
       await pmm.connect(attacker).applyForMarket(PLATFORM_ID);
       
       const balanceAfter = await tenbin.balanceOf(attacker.address);
-      expect(balanceBefore - balanceAfter).to.equal(10000000n); // 10 TENBIN
+      expect(balanceBefore - balanceAfter).to.equal(10000000n); // 10 TBD
     });
   });
 
@@ -313,21 +313,21 @@ describe("Security and Exploit Prevention", function () {
   describe("DoS Prevention", function () {
     it("Should handle gas-expensive operations gracefully", async function () {
       // Create market with moderately large coordinates (gas cost)
-      // (10000, 10001) costs ~14,142 TENBIN which alice can afford
+      // (10000, 10001) costs ~14,142 TBD which alice can afford
       // Note: x != y to avoid genesis line restriction
       await expect(pmm.connect(alice).createMarket(PLATFORM_ID, 10000, 10001))
         .to.not.be.reverted;
     });
 
     it("Should prevent griefing via excessive applications", async function () {
-      // Each application costs 10 TENBIN
+      // Each application costs 10 TBD
       // Attacker would lose money trying to grief
       for (let i = 0; i < 10; i++) {
         await pmm.connect(attacker).applyForMarket(i + 1);
       }
       
-      // Attacker spent 100 TENBIN
-      const spent = 10 * 10000000; // 100 TENBIN
+      // Attacker spent 100 TBD
+      const spent = 10 * 10000000; // 100 TBD
       expect(await pmm.accumulatedProtocolFees()).to.be.gte(spent);
     });
 
@@ -377,7 +377,7 @@ describe("Security and Exploit Prevention", function () {
       // Give limited approval
       await tenbin.connect(alice).approve(await pmm.getAddress(), ethers.parseUnits("1", 6));
       
-      // Try to create market costing 5.05 TENBIN
+      // Try to create market costing 5.05 TBD
       await expect(pmm.connect(alice).createMarket(PLATFORM_ID, 3, 4))
         .to.be.reverted; // Insufficient allowance
     });
@@ -390,7 +390,7 @@ describe("Security and Exploit Prevention", function () {
       const balanceAfter = await tenbin.balanceOf(alice.address);
       const spent = balanceBefore - balanceAfter;
       
-      // Should spend exactly 5.05 TENBIN, not more
+      // Should spend exactly 5.05 TBD, not more
       expect(spent).to.equal(5050000n);
     });
   });
@@ -489,7 +489,7 @@ describe("Security and Exploit Prevention", function () {
   });
 });
 
-describe("TENBIN Token Security", function () {
+describe("TBD Token Security", function () {
   let tenbin;
   let owner;
   let attacker;

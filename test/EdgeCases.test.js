@@ -14,7 +14,7 @@ describe("Edge Cases and Security Tests", function () {
   beforeEach(async function () {
     [owner, alice, bob, charlie] = await ethers.getSigners();
 
-    // Deploy TENBIN token
+    // Deploy TBD token
     const TenbinToken = await ethers.getContractFactory("TenbinToken");
     tenbin = await TenbinToken.deploy(owner.address);
     await tenbin.waitForDeployment();
@@ -292,7 +292,7 @@ describe("Edge Cases and Security Tests", function () {
     it("Should accumulate fees correctly over many transactions", async function () {
       await pmm.connect(alice).createMarket(PLATFORM_ID, 3, 4);
       
-      let totalExpectedFees = 50000n; // 0.05 TENBIN from creation (5 * 0.01)
+      let totalExpectedFees = 50000n; // 0.05 TBD from creation (5 * 0.01)
       
       // Multiple votes
       for (let i = 0; i < 5; i++) {
@@ -502,7 +502,7 @@ describe("Edge Cases and Security Tests", function () {
   });
 });
 
-describe("TENBIN Token Edge Cases", function () {
+describe("TBD Token Edge Cases", function () {
   let tenbin;
   let owner;
   let alice;

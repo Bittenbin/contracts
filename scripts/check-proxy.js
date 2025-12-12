@@ -2,7 +2,7 @@ const { ethers } = require("hardhat");
 
 const PROXY_ADDRESS = "0x92AcC35FE215a065146F93132cF27D5C3E39D826";
 const IMPLEMENTATION_ADDRESS = "0x98a05820ca7e18B70F0ad8A2D8B225aB76bd4D75";
-const TENBIN_ADDRESS = "0x420331D6396B7290B57Ac4633983FC9a95F9913C";
+const TOKEN_ADDRESS = "0x420331D6396B7290B57Ac4633983FC9a95F9913C";
 
 async function main() {
   console.log("=================================");

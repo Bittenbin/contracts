@@ -2,7 +2,7 @@ const { ethers } = require("hardhat");
 
 // Already deployed contracts
 const PMM_IMPLEMENTATION = "0x98a05820ca7e18B70F0ad8A2D8B225aB76bd4D75";
-const TENBIN_ADDRESS = "0x420331D6396B7290B57Ac4633983FC9a95F9913C";
+const TOKEN_ADDRESS = "0x420331D6396B7290B57Ac4633983FC9a95F9913C";
 
 async function main() {
   console.log("=================================");
@@ -17,11 +17,11 @@ async function main() {
   console.log("Balance:", ethers.formatEther(await ethers.provider.getBalance(deployer.address)), "ETH");
   
   console.log("\nPMM Implementation:", PMM_IMPLEMENTATION);
-  console.log("TENBIN Address:", TENBIN_ADDRESS);
+  console.log("Token Address:", TOKEN_ADDRESS);
 
   // Get the PMM interface to encode the initialize call
   const PythagoreanMarketMaker = await ethers.getContractFactory("PythagoreanMarketMaker");
-  const initData = PythagoreanMarketMaker.interface.encodeFunctionData("initialize", [TENBIN_ADDRESS]);
+  const initData = PythagoreanMarketMaker.interface.encodeFunctionData("initialize", [TOKEN_ADDRESS]);
   console.log("\nInit data:", initData);
 
   // Deploy ERC1967Proxy
@@ -63,7 +63,7 @@ async function main() {
     contracts: {
       PythagoreanMarketMaker: proxyAddress,
       Implementation: PMM_IMPLEMENTATION,
-      PaymentToken: TENBIN_ADDRESS
+      PaymentToken: TOKEN_ADDRESS
     },
     deployer: deployer.address,
     timestamp: new Date().toISOString()
@@ -81,7 +81,7 @@ async function main() {
   console.log("🎉 DEPLOYMENT SUCCESSFUL!");
   console.log("=================================");
   console.log("\n📋 Contract Addresses:");
-  console.log("TENBIN:", TENBIN_ADDRESS);
+  console.log("TOKEN:", TOKEN_ADDRESS);
   console.log("PMM (Proxy):", proxyAddress);
   console.log("PMM (Implementation):", PMM_IMPLEMENTATION);
   

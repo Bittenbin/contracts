@@ -34,12 +34,12 @@ When **creating** a market, additional rules apply:
 
 ## Pricing Formula
 
-### Cost = Hypotenuse in TENBIN
+### Cost = Hypotenuse in TBD
 
 The cost of a market position is determined by its **hypotenuse** (distance from origin):
 
 ```
-Cost = sqrt(x² + y²) TENBIN + protocol fee
+Cost = sqrt(x² + y²) TBD + protocol fee
 ```
 
 ### Configurable Protocol Fee
@@ -61,16 +61,16 @@ pmm.setProtocolFee(0);
 
 | Action | Formula | Example |
 |--------|---------|---------|
-| **Create** | `sqrt(x² + y²) * (1 + fee%)` | (3,4) → 5.05 TENBIN |
-| **Buy** | `(newHyp - currentHyp) * (1 + fee%)` | (3,4)→(5,12) = 8.08 TENBIN |
-| **Sell** | `(currentHyp - newHyp) * (1 - fee%)` | (5,12)→(3,4) = 7.92 TENBIN refund |
-| **Rebalance** | 0 (same hypotenuse) | (5,12)→(12,5) = 0 TENBIN |
+| **Create** | `sqrt(x² + y²) * (1 + fee%)` | (3,4) → 5.05 TBD |
+| **Buy** | `(newHyp - currentHyp) * (1 + fee%)` | (3,4)→(5,12) = 8.08 TBD |
+| **Sell** | `(currentHyp - newHyp) * (1 - fee%)` | (5,12)→(3,4) = 7.92 TBD refund |
+| **Rebalance** | 0 (same hypotenuse) | (5,12)→(12,5) = 0 TBD |
 
 ### Fractional Hypotenuse Handling
 - The hypotenuse can be any positive real number
-- Payments are calculated with 6-decimal precision (TENBIN decimals)
+- Payments are calculated with 6-decimal precision (TBD decimals)
 - Example: Position (4,5) has hypotenuse √41 ≈ 6.403124
-  - Cost = 6.403124 TENBIN + 0.064031 fee = 6.467155 TENBIN
+  - Cost = 6.403124 TBD + 0.064031 fee = 6.467155 TBD
 
 ## Score
 
@@ -99,7 +99,7 @@ Score = y² / (x² + y²)
 
 Markets are not created directly. Instead:
 
-1. **Apply**: User calls `applyForMarket(platformId)` with 10 TENBIN fee
+1. **Apply**: User calls `applyForMarket(platformId)` with 10 TBD fee
 2. **Review**: Contract owner reviews the application
 3. **Approve/Deny**: Owner calls `approveMarket()` or `denyMarket()`
 4. **Initial Position**: Approved market starts at (0, 0)
@@ -122,8 +122,8 @@ where K = 4 / (3 * sqrt(π)) ≈ 0.752
 
 ### Cost Basis Tracking
 For each user and market, PMM tracks:
-- **yCost**: TENBIN spent on y-axis votes
-- **xCost**: TENBIN spent on x-axis votes
+- **yCost**: TBD spent on y-axis votes
+- **xCost**: TBD spent on x-axis votes
 - **lastAccrual**: Timestamp of last yield calculation
 - **unclaimedYield**: Accumulated rewards
 
@@ -170,7 +170,7 @@ Each coordinate can only be occupied by **one market**:
 ### Popular Coordinates
 Some coordinates are more desirable:
 - **Pythagorean triples**: Integer hypotenuse = cleaner costs
-- **Low coordinates**: Cheaper to create (e.g., (3,4) = 5 TENBIN)
+- **Low coordinates**: Cheaper to create (e.g., (3,4) = 5 TBD)
 - **High y-score**: e.g., (5, 12) with 85% score
 - **Balanced**: e.g., (20, 21) near 50% for neutral markets
 
@@ -190,11 +190,11 @@ Choose coordinates that reflect initial positioning:
 ### Common Pythagorean Triples (Reference)
 These have integer hypotenuse, making costs exact:
 ```
-(3, 4, 5)    - Minimal: 5 TENBIN
-(5, 12, 13)  - Standard: 13 TENBIN
-(8, 15, 17)  - Medium: 17 TENBIN
-(7, 24, 25)  - High y-score: 25 TENBIN
-(20, 21, 29) - Balanced: 29 TENBIN
+(3, 4, 5)    - Minimal: 5 TBD
+(5, 12, 13)  - Standard: 13 TBD
+(8, 15, 17)  - Medium: 17 TBD
+(7, 24, 25)  - High y-score: 25 TBD
+(20, 21, 29) - Balanced: 29 TBD
 ```
 
 ## Mathematical Limits
@@ -237,7 +237,7 @@ function holdings(uint256 platformId, address user) returns (
 
 ### Write Functions
 ```solidity
-// Apply for market (10 TENBIN fee)
+// Apply for market (10 TBD fee)
 function applyForMarket(uint256 platformId)
 
 // Vote on market

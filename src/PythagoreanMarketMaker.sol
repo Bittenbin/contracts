@@ -22,19 +22,19 @@ interface IMintableERC20 {
  * 
  * Core Mechanics:
  * - Markets exist at (x, y) coordinates representing vote positions
- * - Cost = sqrt(x² + y²) in TENBIN tokens (hypotenuse-based pricing)
+ * - Cost = sqrt(x² + y²) in payment tokens (hypotenuse-based pricing)
  * - Each voter's contributions are tracked individually for fair selling
  * - Coordinates are globally unique across all markets
  * 
  * Fee Structure:
  * - Protocol fee: 100 basis points (1%) on all buy/sell transactions
  * - Fees accumulate in contract and can be distributed 50/50 to recipients
- * - Application fee: 10 TENBIN flat fee for market applications
+ * - Application fee: 10 tokens flat fee for market applications
  * 
  * Yield System:
  * - Annual yield rate = K / sqrt(totalMarkets) where K ≈ 0.752
  * - Yield accrues on cost basis (amount paid for votes)
- * - PMM must be set as TENBIN minter for yield claiming
+ * - PMM must be set as token minter for yield claiming
  * 
  * MEV Protection:
  * - Default 2.5% slippage tolerance on all trades
@@ -279,7 +279,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     
     /**
      * @dev Initializes the contract
-     * @param _paymentToken Address of the ERC20 token used for payments (TENBIN)
+     * @param _paymentToken Address of the ERC20 token used for payments (TBD)
      */
     function initialize(
         address _paymentToken
@@ -357,7 +357,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
 
     /**
      * @notice Claim accumulated yield rewards for a specific platform
-     * @dev Mints TENBIN tokens to caller. PMM must be set as TENBIN minter.
+     * @dev Mints tokens to caller. PMM must be set as token minter.
      * @param platformId The platform ID to claim yield from
      */
     function claimYield(uint256 platformId) external nonReentrant whenNotPaused {
@@ -368,7 +368,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
             return;
         }
         h.unclaimedYield = 0;
-        // Mint reward tokens to user (PMM must be set as minter on TENBIN)
+        // Mint reward tokens to user (PMM must be set as token minter)
         try IMintableERC20(address(paymentToken)).mint(msg.sender, amount) {
         } catch {
             revert MintingNotSupported();

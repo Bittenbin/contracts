@@ -6,12 +6,12 @@ async function main() {
   const [deployer] = await ethers.getSigners();
   console.log("Deploying contracts with account:", deployer.address);
 
-  // Check if we should deploy Tenbin Dollar (TBD) or use existing
-  const deployTenbin = process.env.DEPLOY_TENBIN === "true";
+  // Check if we should deploy token or use existing
+  const deployToken = process.env.DEPLOY_TOKEN === "true";
   let paymentTokenAddress;
   let tenbinInstance;
 
-  if (deployTenbin) {
+  if (deployToken) {
     console.log("Deploying Tenbin Dollar (TBD) token...");
     const TenbinToken = await ethers.getContractFactory("TenbinToken");
     tenbinInstance = await TenbinToken.deploy((await ethers.getSigners())[0].address);

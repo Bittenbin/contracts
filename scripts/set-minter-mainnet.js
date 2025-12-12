@@ -1,19 +1,19 @@
 const { ethers } = require("hardhat");
 
-const TENBIN_ADDRESS = "0x420331D6396B7290B57Ac4633983FC9a95F9913C";
+const TOKEN_ADDRESS = "0x420331D6396B7290B57Ac4633983FC9a95F9913C";
 const PMM_PROXY_ADDRESS = "0x92AcC35FE215a065146F93132cF27D5C3E39D826";
 
 async function main() {
   console.log("=================================");
-  console.log("SET PMM AS TENBIN MINTER");
+  console.log("SET PMM AS TOKEN MINTER");
   console.log("=================================\n");
 
   const [deployer] = await ethers.getSigners();
   console.log("Caller:", deployer.address);
 
-  // Get TENBIN contract
+  // Get token contract
   const TenbinToken = await ethers.getContractFactory("TenbinToken");
-  const tenbin = TenbinToken.attach(TENBIN_ADDRESS);
+  const tenbin = TenbinToken.attach(TOKEN_ADDRESS);
 
   // Check current minter
   const currentMinter = await tenbin.minter();

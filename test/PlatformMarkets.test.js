@@ -39,7 +39,7 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
   beforeEach(async function () {
     [owner, alice, bob, charlie, david, eve, frank] = await ethers.getSigners();
 
-    // Deploy TENBIN token (6 decimals)
+    // Deploy TBD token (6 decimals)
     const TenbinToken = await ethers.getContractFactory("TenbinToken");
     tenbin = await TenbinToken.deploy(owner.address);
     await tenbin.waitForDeployment();
@@ -53,11 +53,11 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
     );
     await pmm.waitForDeployment();
 
-    // Mint TENBIN to users
+    // Mint TBD to users
     const amounts = [
       [alice, "10000"],
       [bob, "10000"],
-      [charlie, "2000000"], // 2M TENBIN for large tests
+      [charlie, "2000000"], // 2M TBD for large tests
       [david, "10000"],
       [eve, "10000"],
       [frank, "100000"]
@@ -167,7 +167,7 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
   describe("Market Creation with Hypotenuse Pricing", function () {
     it("Should create a market with hypotenuse-based cost", async function () {
       // Create market at (3, 4)
-      // Cost = sqrt(3² + 4²) = 5 TENBIN + 1% fee = 5.05 TENBIN
+      // Cost = sqrt(3² + 4²) = 5 TBD + 1% fee = 5.05 TBD
       await expect(pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4))
         .to.emit(pmm, "MarketCreated")
         .withArgs(PLATFORM_ID_1, alice.address, 3, 4, 7); // 7 total votes
@@ -208,19 +208,19 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       const aliceBalanceAfter = await tenbin.balanceOf(alice.address);
       const contractBalanceAfter = await tenbin.balanceOf(await pmm.getAddress());
 
-      // Alice pays 5 TENBIN + 0.05 fee = 5.05 TENBIN
+      // Alice pays 5 TBD + 0.05 fee = 5.05 TBD
       // Hypotenuse = sqrt(9 + 16) = 5
       // Cost = 5 * 10^6 * 1.01 = 5,050,000
       const aliceSpent = aliceBalanceBefore - aliceBalanceAfter;
       expect(aliceSpent).to.equal(5050000n);
 
-      // Contract receives 5.05 TENBIN
+      // Contract receives 5.05 TBD
       const contractReceived = contractBalanceAfter - contractBalanceBefore;
       expect(contractReceived).to.equal(5050000n);
       
       // Check accumulated fees
       const accumulatedFees = await pmm.accumulatedProtocolFees();
-      expect(accumulatedFees).to.equal(50000n); // 0.05 TENBIN fee
+      expect(accumulatedFees).to.equal(50000n); // 0.05 TBD fee
     });
     
     it("Should prevent market creation with invalid coordinates", async function () {
@@ -414,8 +414,8 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
           platformId,
           bob.address,
           slippageBasisPoints,
-          13130000n, // 13.13 TENBIN (13 + 0.13 fee)
-          13261300n, // 13.2613 TENBIN (with 1% slippage)
+          13130000n, // 13.13 TBD (13 + 0.13 fee)
+          13261300n, // 13.2613 TBD (with 1% slippage)
           true // isBuy
         );
         
@@ -429,15 +429,15 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       
       const balanceBefore = await tenbin.balanceOf(bob.address);
       
-      // Move from (3,4) to (5,12) - cost 8 TENBIN + fee
+      // Move from (3,4) to (5,12) - cost 8 TBD + fee
       await expect(pmm.connect(bob).voteOnMarketWithSlippage(PLATFORM_ID_1, 5, 12, slippageBasisPoints))
         .to.emit(pmm, "SlippageProtectionApplied")
         .withArgs(
           PLATFORM_ID_1,
           bob.address,
           slippageBasisPoints,
-          8080000n, // 8.08 TENBIN (8 + 0.08 fee)
-          8484000n, // 8.484 TENBIN (with 5% slippage)
+          8080000n, // 8.08 TBD (8 + 0.08 fee)
+          8484000n, // 8.484 TBD (with 5% slippage)
           true // isBuy
         );
         
@@ -453,15 +453,15 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       const slippageBasisPoints = 300; // 3% slippage
       const balanceBefore = await tenbin.balanceOf(bob.address);
       
-      // Sell back to (3,4) - refund 8 TENBIN - fee
+      // Sell back to (3,4) - refund 8 TBD - fee
       await expect(pmm.connect(bob).voteOnMarketWithSlippage(PLATFORM_ID_1, 3, 4, slippageBasisPoints))
         .to.emit(pmm, "SlippageProtectionApplied")
         .withArgs(
           PLATFORM_ID_1,
           bob.address,
           slippageBasisPoints,
-          7920000n, // 7.92 TENBIN (8 - 0.08 fee)
-          7682400n, // 7.6824 TENBIN (with 3% slippage)
+          7920000n, // 7.92 TBD (8 - 0.08 fee)
+          7682400n, // 7.6824 TBD (with 3% slippage)
           false // isBuy = false for selling
         );
         
@@ -478,8 +478,8 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
         250      // 2.5% slippage
       );
       
-      expect(result.expectedPayment).to.equal(8080000n); // 8.08 TENBIN
-      expect(result.maxPaymentWithSlippage).to.equal(8282000n); // 8.282 TENBIN
+      expect(result.expectedPayment).to.equal(8080000n); // 8.08 TBD
+      expect(result.maxPaymentWithSlippage).to.equal(8282000n); // 8.282 TBD
     });
     
     it("Should calculate refund with slippage correctly", async function () {
@@ -490,8 +490,8 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
         100      // 1% slippage
       );
       
-      expect(result.expectedRefund).to.equal(7920000n); // 7.92 TENBIN
-      expect(result.minRefundWithSlippage).to.equal(7840800n); // 7.8408 TENBIN
+      expect(result.expectedRefund).to.equal(7920000n); // 7.92 TBD
+      expect(result.minRefundWithSlippage).to.equal(7840800n); // 7.8408 TBD
     });
     
     it("Should reject invalid slippage values", async function () {
@@ -518,13 +518,13 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       const bobBalanceBefore = await tenbin.balanceOf(bob.address);
       
       // Move from (3, 4) to (5, 12)
-      // Cost = sqrt(5² + 12²) - sqrt(3² + 4²) = 13 - 5 = 8 TENBIN
+      // Cost = sqrt(5² + 12²) - sqrt(3² + 4²) = 13 - 5 = 8 TBD
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
       
       const bobBalanceAfter = await tenbin.balanceOf(bob.address);
       const bobSpent = bobBalanceBefore - bobBalanceAfter;
       
-      // 8 TENBIN + 0.08 fee = 8.08 TENBIN = 8,080,000 (6 decimals)
+      // 8 TBD + 0.08 fee = 8.08 TBD = 8,080,000 (6 decimals)
       expect(bobSpent).to.equal(8080000n);
     });
 
@@ -535,13 +535,13 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       const bobBalanceBefore = await tenbin.balanceOf(bob.address);
       
       // Sell by moving back to (3, 4)
-      // Refund = sqrt(5² + 12²) - sqrt(3² + 4²) = 13 - 5 = 8 TENBIN
+      // Refund = sqrt(5² + 12²) - sqrt(3² + 4²) = 13 - 5 = 8 TBD
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 3, 4);
       
       const bobBalanceAfter = await tenbin.balanceOf(bob.address);
       const bobReceived = bobBalanceAfter - bobBalanceBefore;
       
-      // 8 TENBIN - 0.08 fee = 7.92 TENBIN = 7,920,000 (6 decimals)
+      // 8 TBD - 0.08 fee = 7.92 TBD = 7,920,000 (6 decimals)
       expect(bobReceived).to.equal(7920000n);
     });
 
@@ -619,7 +619,7 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       expect(bobY).to.equal(56); // unchanged
       expect(bobX).to.equal(86); // 348 - 262
 
-      // Verify refund amount (238 TENBIN - 2.38 fee = 235.62 TENBIN)
+      // Verify refund amount (238 TBD - 2.38 fee = 235.62 TBD)
       const refund = bobBalanceAfter - bobBalanceBefore;
       expect(refund).to.be.closeTo(235620000n, 10000n); // Allow small rounding difference
     });
@@ -738,7 +738,7 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
         .to.not.be.reverted;
       
       // Test 3: Even larger but still reasonable (30000, 40000, 50000)
-      // This costs 50,000 TENBIN - use Charlie who has 2M TENBIN
+      // This costs 50,000 TBD - use Charlie who has 2M TBD
       await expect(pmm.connect(charlie).createMarket(890, 30000, 40000))
         .to.not.be.reverted;
     });
@@ -781,9 +781,9 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       expect(await pmm.isValidCoordinate(3, 4)).to.be.true;
     });
 
-    it("Should maintain 1 vote = 1 TENBIN relationship with boundary checks", async function () {
+    it("Should maintain 1 vote = 1 TBD relationship with boundary checks", async function () {
       // Test small coordinates: (3, 4) with hypotenuse 5
-      // Cost should be exactly 5 TENBIN + 1% fee = 5.05 TENBIN
+      // Cost should be exactly 5 TBD + 1% fee = 5.05 TBD
       const aliceBalanceBefore = await tenbin.balanceOf(alice.address);
       
       await pmm.connect(alice).createMarket(777, 3, 4);
@@ -791,11 +791,11 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       const aliceBalanceAfter = await tenbin.balanceOf(alice.address);
       const spent = aliceBalanceBefore - aliceBalanceAfter;
       
-      // 5 TENBIN + 0.05 fee = 5.05 TENBIN = 5,050,000 units
+      // 5 TBD + 0.05 fee = 5.05 TBD = 5,050,000 units
       expect(spent).to.equal(5050000n);
       
       // Test larger coordinates: (300, 400) with hypotenuse 500
-      // Cost should be exactly 500 TENBIN + 1% fee = 505 TENBIN
+      // Cost should be exactly 500 TBD + 1% fee = 505 TBD
       const bobBalanceBefore = await tenbin.balanceOf(bob.address);
       
       await pmm.connect(bob).createMarket(778, 300, 400);
@@ -803,14 +803,14 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       const bobBalanceAfter = await tenbin.balanceOf(bob.address);
       const bobSpent = bobBalanceBefore - bobBalanceAfter;
       
-      // 500 TENBIN + 5 fee = 505 TENBIN = 505,000,000 units
+      // 500 TBD + 5 fee = 505 TBD = 505,000,000 units
       expect(bobSpent).to.equal(505000000n);
       
       // Test larger but reasonable: (30000, 40000) with hypotenuse 50000
-      // Cost = 50,000 TENBIN + 500 TENBIN fee = 50,500 TENBIN
+      // Cost = 50,000 TBD + 500 TBD fee = 50,500 TBD
       const largeX = 30000; // 30,000
       const largeY = 40000; // 40,000
-      // Hypotenuse = 50,000, cost = 50,000 TENBIN + fee
+      // Hypotenuse = 50,000, cost = 50,000 TBD + fee
       
       const charlieBalanceBefore = await tenbin.balanceOf(charlie.address);
       
@@ -819,7 +819,7 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       const charlieBalanceAfter = await tenbin.balanceOf(charlie.address);
       const charlieSpent = charlieBalanceBefore - charlieBalanceAfter;
       
-      // 50,000 TENBIN + 500 fee = 50,500 TENBIN = 50,500,000,000 units
+      // 50,000 TBD + 500 fee = 50,500 TBD = 50,500,000,000 units
       expect(charlieSpent).to.equal(50500000000n);
     });
   });
@@ -836,10 +836,10 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       const accumulatedFees = await pmm.accumulatedProtocolFees();
       
       // Expected fees:
-      // - Alice: 5 TENBIN * 0.01 = 0.05 TENBIN
-      // - Bob: 8 TENBIN * 0.01 = 0.08 TENBIN  
-      // - Charlie: 48 TENBIN * 0.01 = 0.48 TENBIN
-      // Total: 0.61 TENBIN = 610,000 units
+      // - Alice: 5 TBD * 0.01 = 0.05 TBD
+      // - Bob: 8 TBD * 0.01 = 0.08 TBD  
+      // - Charlie: 48 TBD * 0.01 = 0.48 TBD
+      // Total: 0.61 TBD = 610,000 units
       expect(accumulatedFees).to.equal(610000n);
     });
 
@@ -857,7 +857,7 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       const ownerBalanceAfter = await tenbin.balanceOf(ownerRecipient);
       const protocolBalanceAfter = await tenbin.balanceOf(protocolRecipient);
       
-      // Each should receive half (0.305 TENBIN each)
+      // Each should receive half (0.305 TBD each)
       expect(ownerBalanceAfter - ownerBalanceBefore).to.equal(305000n);
       expect(protocolBalanceAfter - protocolBalanceBefore).to.equal(305000n);
       
@@ -868,7 +868,7 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
     it("Should allow partial fee distribution", async function () {
       const initialFees = await pmm.accumulatedProtocolFees();
       
-      // Distribute only 200,000 (0.2 TENBIN)
+      // Distribute only 200,000 (0.2 TBD)
       await pmm.connect(owner).distributeProtocolFees(200000n);
       
       // Check remaining fees
@@ -1118,14 +1118,14 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       // Create market
       await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
       
-      // Contract should now hold 5.05 TENBIN
+      // Contract should now hold 5.05 TBD
       const afterCreation = await pmm.getContractBalance();
       expect(afterCreation).to.equal(5050000n);
       
       // Vote to add more liquidity
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
       
-      // Contract should now hold 5.05 + 8.08 = 13.13 TENBIN
+      // Contract should now hold 5.05 + 8.08 = 13.13 TBD
       const afterVoting = await pmm.getContractBalance();
       expect(afterVoting).to.equal(13130000n);
     });
@@ -1147,7 +1147,7 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
       
       // Try to vote with insufficient balance
-      const poorUser = eve; // Has TENBIN but not enough
+      const poorUser = eve; // Has TBD but not enough
       await tenbin.connect(poorUser).transfer(owner.address, await tenbin.balanceOf(poorUser.address) - 1000000n); // Leave only 1 token
       
       // Should fail due to insufficient balance
@@ -1275,7 +1275,7 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       const feeInfo = await pmm.getFeeDistributionInfo();
       console.log("Owner Fee Recipient:", feeInfo.ownerRecipient);
       console.log("Protocol Fee Recipient:", feeInfo.protocolRecipient);
-      console.log("Accumulated Fees:", ethers.formatUnits(feeInfo.pendingFees, 6), "TENBIN");
+      console.log("Accumulated Fees:", ethers.formatUnits(feeInfo.pendingFees, 6), "TBD");
     });
   });
 
@@ -1350,13 +1350,13 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       const aliceBalanceBefore = await tenbin.balanceOf(alice.address);
       
       // Create market at (3, 4) - hypotenuse = 5
-      // Cost = 5 TENBIN + 0.5% fee = 5.025 TENBIN
+      // Cost = 5 TBD + 0.5% fee = 5.025 TBD
       await pmm.connect(alice).createMarket(platformId, 3, 4);
       
       const aliceBalanceAfter = await tenbin.balanceOf(alice.address);
       const spent = aliceBalanceBefore - aliceBalanceAfter;
       
-      // 5 TENBIN + 0.025 fee = 5.025 TENBIN = 5,025,000 units
+      // 5 TBD + 0.025 fee = 5.025 TBD = 5,025,000 units
       expect(spent).to.equal(5025000n);
     });
 
@@ -1369,13 +1369,13 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       const bobBalanceBefore = await tenbin.balanceOf(bob.address);
       
       // Vote from (3, 4) to (5, 12) - hypotenuse change = 13 - 5 = 8
-      // Cost = 8 TENBIN + 0% fee = 8.00 TENBIN
+      // Cost = 8 TBD + 0% fee = 8.00 TBD
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
       
       const bobBalanceAfter = await tenbin.balanceOf(bob.address);
       const spent = bobBalanceBefore - bobBalanceAfter;
       
-      // 8 TENBIN + 0 fee = 8.00 TENBIN = 8,000,000 units
+      // 8 TBD + 0 fee = 8.00 TBD = 8,000,000 units
       expect(spent).to.equal(8000000n);
     });
 
@@ -1389,13 +1389,13 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       
       const bobBalanceBefore = await tenbin.balanceOf(bob.address);
       
-      // Sell back to (3, 4) - refund 8 TENBIN - 0% fee = 8.00 TENBIN
+      // Sell back to (3, 4) - refund 8 TBD - 0% fee = 8.00 TBD
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 3, 4);
       
       const bobBalanceAfter = await tenbin.balanceOf(bob.address);
       const received = bobBalanceAfter - bobBalanceBefore;
       
-      // 8 TENBIN - 0 fee = 8.00 TENBIN = 8,000,000 units
+      // 8 TBD - 0 fee = 8.00 TBD = 8,000,000 units
       expect(received).to.equal(8000000n);
     });
 
@@ -1437,7 +1437,7 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       
       // Create market at 1% fee
       await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
-      // Fee = 5 * 0.01 = 0.05 TENBIN = 50,000 units
+      // Fee = 5 * 0.01 = 0.05 TBD = 50,000 units
       
       expect(await pmm.accumulatedProtocolFees()).to.equal(initialFees + 50000n);
       
@@ -1453,7 +1453,7 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       await pmm.connect(owner).setProtocolFee(50);
       
       // Vote again - hypotenuse change = sqrt(11^2 + 60^2) - sqrt(5^2 + 12^2) = 61 - 13 = 48
-      // Fee = 48 * 0.005 = 0.24 TENBIN = 240,000 units
+      // Fee = 48 * 0.005 = 0.24 TBD = 240,000 units
       await pmm.connect(charlie).voteOnMarket(PLATFORM_ID_1, 11, 60);
       
       expect(await pmm.accumulatedProtocolFees()).to.equal(initialFees + 50000n + 240000n);
@@ -1485,7 +1485,7 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
   });
 
   describe("Market Application Workflow", function () {
-    const APPLICATION_FEE = ethers.parseUnits("10", 6); // 10 TENBIN
+    const APPLICATION_FEE = ethers.parseUnits("10", 6); // 10 TBD
     
     it("Should allow users to apply for a new market", async function () {
       const platformId = getUniquePlatformId();
@@ -1505,7 +1505,7 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       expect(fees).to.equal(APPLICATION_FEE);
     });
     
-    it("Should charge 10 TENBIN application fee", async function () {
+    it("Should charge 10 TBD application fee", async function () {
       const platformId = getUniquePlatformId();
       
       const balanceBefore = await tenbin.balanceOf(alice.address);
@@ -1633,7 +1633,7 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
     const YEAR = 365n * 24n * 60n * 60n;
 
     beforeEach(async function () {
-      // Set PMM as the minter for TENBIN
+      // Set PMM as the minter for TBD
       await tenbin.setMinter(await pmm.getAddress());
     });
     
@@ -1680,9 +1680,9 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       
       // yCost should reflect the 4 y-votes component
       // xCost should reflect the 3 x-votes component
-      // Total should be close to hypotenuse * 1e6 (5 TENBIN)
+      // Total should be close to hypotenuse * 1e6 (5 TBD)
       expect(holdings.yCost + holdings.xCost).to.be.closeTo(
-        5000000n, // 5 TENBIN in wei
+        5000000n, // 5 TBD in wei
         100n // Allow small rounding
       );
       expect(holdings.lastAccrual).to.be.gt(0);
