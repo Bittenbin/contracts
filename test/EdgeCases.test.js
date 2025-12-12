@@ -14,7 +14,7 @@ describe("Edge Cases and Security Tests", function () {
   beforeEach(async function () {
     [owner, alice, bob, charlie] = await ethers.getSigners();
 
-    // Deploy TENBIN token
+    // Deploy TBD token
     const TenbinToken = await ethers.getContractFactory("TenbinToken");
     tenbin = await TenbinToken.deploy(owner.address);
     await tenbin.waitForDeployment();
@@ -51,7 +51,8 @@ describe("Edge Cases and Security Tests", function () {
       expect(await pmm.paymentToken()).to.equal(await tenbin.getAddress());
       expect(await pmm.totalMarkets()).to.equal(0);
       expect(await pmm.accumulatedProtocolFees()).to.equal(0);
-      expect(await pmm.PROTOCOL_FEE_BASIS_POINTS()).to.equal(100);
+      expect(await pmm.protocolFeeBasisPoints()).to.equal(100);
+      expect(await pmm.MAX_PROTOCOL_FEE_BASIS_POINTS()).to.equal(100);
       expect(await pmm.MINIMUM_VOTES()).to.equal(7);
     });
   });
@@ -92,8 +93,8 @@ describe("Edge Cases and Security Tests", function () {
       await pmm.connect(alice).createMarket(PLATFORM_ID, 3, 4);
     });
 
-    it("Should handle voting that only changes trust (same distrust)", async function () {
-      // Move from (3, 4) to (3, 10) - only trust increases
+    it("Should handle voting that only changes y (same x)", async function () {
+      // Move from (3, 4) to (3, 10) - only y increases
       const balanceBefore = await tenbin.balanceOf(bob.address);
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID, 3, 10);
       const balanceAfter = await tenbin.balanceOf(bob.address);
@@ -105,33 +106,33 @@ describe("Edge Cases and Security Tests", function () {
       // Bob should have paid for the hypotenuse increase
       expect(balanceBefore - balanceAfter).to.be.gt(0);
       
-      const [trustVotes, distrustVotes] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
-      expect(trustVotes).to.equal(6); // 10 - 4
-      expect(distrustVotes).to.equal(0); // No distrust change
+      const [yVotes, xVotes] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
+      expect(yVotes).to.equal(6); // 10 - 4
+      expect(xVotes).to.equal(0); // No x change
     });
 
-    it("Should handle voting that only changes distrust (same trust)", async function () {
-      // Move from (3, 4) to (10, 4) - only distrust increases
+    it("Should handle voting that only changes x (same y)", async function () {
+      // Move from (3, 4) to (10, 4) - only x increases
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID, 10, 4);
       
       const state = await pmm.getMarketState(PLATFORM_ID);
       expect(state.x).to.equal(10);
       expect(state.y).to.equal(4);
       
-      const [trustVotes, distrustVotes] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
-      expect(trustVotes).to.equal(0);
-      expect(distrustVotes).to.equal(7); // 10 - 3
+      const [yVotes, xVotes] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
+      expect(yVotes).to.equal(0);
+      expect(xVotes).to.equal(7); // 10 - 3
     });
 
-    it("Should handle selling trust votes specifically", async function () {
-      // Bob buys trust votes
+    it("Should handle selling y votes specifically", async function () {
+      // Bob buys y votes
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID, 3, 20);
       
-      let [trustVotes, distrustVotes] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
-      expect(trustVotes).to.equal(16); // 20 - 4
-      expect(distrustVotes).to.equal(0);
-      
-      // Bob sells some trust votes
+      let [yVotes, xVotes] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
+      expect(yVotes).to.equal(16); // 20 - 4
+      expect(xVotes).to.equal(0);
+
+      // Bob sells some y votes
       const balanceBefore = await tenbin.balanceOf(bob.address);
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID, 3, 10);
       const balanceAfter = await tenbin.balanceOf(bob.address);
@@ -139,8 +140,8 @@ describe("Edge Cases and Security Tests", function () {
       // Should receive refund
       expect(balanceAfter).to.be.gt(balanceBefore);
       
-      [trustVotes, distrustVotes] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
-      expect(trustVotes).to.equal(6); // 16 - 10 = 6
+      [yVotes, xVotes] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
+      expect(yVotes).to.equal(6); // 16 - 10 = 6
     });
 
     it("Should prevent voting to same position (no change)", async function () {
@@ -194,9 +195,9 @@ describe("Edge Cases and Security Tests", function () {
       expect(state.y).to.equal(4);
       
       // Bob owns all votes
-      const [trustVotes, distrustVotes] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
-      expect(trustVotes).to.equal(4);
-      expect(distrustVotes).to.equal(3);
+      const [yVotes, xVotes] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
+      expect(yVotes).to.equal(4);
+      expect(xVotes).to.equal(3);
     });
 
     it("Should not allow application while paused", async function () {
@@ -274,7 +275,7 @@ describe("Edge Cases and Security Tests", function () {
       
       // Check Bob's holdings
       let holdings = await pmm.holdings(PLATFORM_ID, bob.address);
-      const initialCost = holdings.trustCost + holdings.distrustCost;
+      const initialCost = holdings.yCost + holdings.xCost;
       expect(initialCost).to.be.gt(0);
       
       // Bob sells partially
@@ -282,7 +283,7 @@ describe("Edge Cases and Security Tests", function () {
       
       // Holdings should be reduced
       holdings = await pmm.holdings(PLATFORM_ID, bob.address);
-      const afterSellCost = holdings.trustCost + holdings.distrustCost;
+      const afterSellCost = holdings.yCost + holdings.xCost;
       expect(afterSellCost).to.be.lt(initialCost);
     });
   });
@@ -291,7 +292,7 @@ describe("Edge Cases and Security Tests", function () {
     it("Should accumulate fees correctly over many transactions", async function () {
       await pmm.connect(alice).createMarket(PLATFORM_ID, 3, 4);
       
-      let totalExpectedFees = 50000n; // 0.05 TENBIN from creation (5 * 0.01)
+      let totalExpectedFees = 50000n; // 0.05 TBD from creation (5 * 0.01)
       
       // Multiple votes
       for (let i = 0; i < 5; i++) {
@@ -359,10 +360,10 @@ describe("Edge Cases and Security Tests", function () {
       
       const holdings = await pmm.holdings(PLATFORM_ID, alice.address);
       
-      // trustCost = sqrt(0² + 4²) * 1e6 = 4e6
-      // distrustCost = sqrt(3² + 4²) - sqrt(4²) = 5 - 4 = 1e6
-      expect(holdings.trustCost).to.equal(4000000n);
-      expect(holdings.distrustCost).to.equal(1000000n);
+      // yCost = sqrt(0² + 4²) * 1e6 = 4e6
+      // xCost = sqrt(3² + 4²) - sqrt(4²) = 5 - 4 = 1e6
+      expect(holdings.yCost).to.equal(4000000n);
+      expect(holdings.xCost).to.equal(1000000n);
       expect(holdings.lastAccrual).to.be.gt(0);
       expect(holdings.unclaimedYield).to.equal(0);
     });
@@ -372,8 +373,8 @@ describe("Edge Cases and Security Tests", function () {
       
       const holdings = await pmm.holdings(PLATFORM_ID, bob.address);
       
-      expect(holdings.trustCost).to.equal(0);
-      expect(holdings.distrustCost).to.equal(0);
+      expect(holdings.yCost).to.equal(0);
+      expect(holdings.xCost).to.equal(0);
       expect(holdings.lastAccrual).to.equal(0);
       expect(holdings.unclaimedYield).to.equal(0);
     });
@@ -438,21 +439,21 @@ describe("Edge Cases and Security Tests", function () {
       await pmm.connect(charlie).voteOnMarket(PLATFORM_ID, 8, 15);
       
       // Verify all positions
-      const [aliceTrust, aliceDistrust] = await pmm.getVoterPosition(PLATFORM_ID, alice.address);
-      const [bobTrust, bobDistrust] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
-      const [charlieTrust, charlieDistrust] = await pmm.getVoterPosition(PLATFORM_ID, charlie.address);
+      const [aliceY, aliceX] = await pmm.getVoterPosition(PLATFORM_ID, alice.address);
+      const [bobY, bobX] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
+      const [charlieY, charlieX] = await pmm.getVoterPosition(PLATFORM_ID, charlie.address);
       
       // Alice: original creator
-      expect(aliceTrust).to.equal(4);
-      expect(aliceDistrust).to.equal(3);
+      expect(aliceY).to.equal(4);
+      expect(aliceX).to.equal(3);
       
       // Bob: (3,4) -> (5,12)
-      expect(bobTrust).to.equal(8); // 12 - 4
-      expect(bobDistrust).to.equal(2); // 5 - 3
+      expect(bobY).to.equal(8); // 12 - 4
+      expect(bobX).to.equal(2); // 5 - 3
       
       // Charlie: (5,12) -> (8,15)
-      expect(charlieTrust).to.equal(3); // 15 - 12
-      expect(charlieDistrust).to.equal(3); // 8 - 5
+      expect(charlieY).to.equal(3); // 15 - 12
+      expect(charlieX).to.equal(3); // 8 - 5
       
       // Total should match current state
       const state = await pmm.getMarketState(PLATFORM_ID);
@@ -466,42 +467,42 @@ describe("Edge Cases and Security Tests", function () {
       // Bob buys votes
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID, 8, 15);
       
-      let [bobTrust, bobDistrust] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
-      expect(bobTrust).to.equal(3); // 15 - 12
-      expect(bobDistrust).to.equal(3); // 8 - 5
+      let [bobY, bobX] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
+      expect(bobY).to.equal(3); // 15 - 12
+      expect(bobX).to.equal(3); // 8 - 5
       
       // Bob sells all votes back
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID, 5, 12);
       
-      [bobTrust, bobDistrust] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
-      expect(bobTrust).to.equal(0);
-      expect(bobDistrust).to.equal(0);
+      [bobY, bobX] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
+      expect(bobY).to.equal(0);
+      expect(bobX).to.equal(0);
     });
   });
 
-  describe("Trust Score Edge Cases", function () {
+  describe("Score Edge Cases", function () {
     it("Should return 0 for (0, 0)", async function () {
-      expect(await pmm.calculateTrustScore(0, 0)).to.equal(0);
+      expect(await pmm.calculateScore(0, 0)).to.equal(0);
     });
 
     it("Should handle very unbalanced coordinates", async function () {
-      // Very high trust
-      const highTrust = await pmm.calculateTrustScore(1, 1000000);
-      expect(Number(highTrust) / 1e18).to.be.closeTo(1.0, 0.001);
+      // Very high y
+      const highY = await pmm.calculateScore(1, 1000000);
+      expect(Number(highY) / 1e18).to.be.closeTo(1.0, 0.001);
       
-      // Very low trust
-      const lowTrust = await pmm.calculateTrustScore(1000000, 1);
-      expect(Number(lowTrust) / 1e18).to.be.closeTo(0.0, 0.001);
+      // Very low y
+      const lowY = await pmm.calculateScore(1000000, 1);
+      expect(Number(lowY) / 1e18).to.be.closeTo(0.0, 0.001);
     });
 
     it("Should return exactly 50% for equal coordinates", async function () {
-      const balanced = await pmm.calculateTrustScore(100, 100);
+      const balanced = await pmm.calculateScore(100, 100);
       expect(Number(balanced) / 1e18).to.equal(0.5);
     });
   });
 });
 
-describe("TENBIN Token Edge Cases", function () {
+describe("TBD Token Edge Cases", function () {
   let tenbin;
   let owner;
   let alice;
@@ -551,8 +552,8 @@ describe("TENBIN Token Edge Cases", function () {
   });
 
   it("Should have correct name and symbol", async function () {
-    expect(await tenbin.name()).to.equal("TENBIN");
-    expect(await tenbin.symbol()).to.equal("TENBIN");
+    expect(await tenbin.name()).to.equal("Tenbin Dollar");
+    expect(await tenbin.symbol()).to.equal("TBD");
   });
 
   it("Should handle very large minting amounts", async function () {

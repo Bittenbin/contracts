@@ -1,21 +1,21 @@
 # Pythagorean Market Maker (PMM)
 
-A decentralized reputation system using coordinate-based markets to track trust and distrust votes for any platform entity.
+A decentralized reputation system using coordinate-based markets to track votes for any platform entity.
 
 ## 🚀 Live Deployments
 
 ### Base Mainnet
-- **PMM Contract**: [`0x92AcC35FE215a065146F93132cF27D5C3E39D826`](https://basescan.org/address/0x92AcC35FE215a065146F93132cF27D5C3E39D826)
-- **TENBIN Token**: [`0x420331D6396B7290B57Ac4633983FC9a95F9913C`](https://basescan.org/address/0x420331D6396B7290B57Ac4633983FC9a95F9913C)
+- **PMM Contract**: [`0xff763ea9508Be30840edB942D4ffDEAaa4Ec9FEc`](https://basescan.org/address/0xff763ea9508Be30840edB942D4ffDEAaa4Ec9FEc)
+- **Token (TBD)**: [`0xAEe7CdeEB72D645Fc9598d4AF47C43303A6c699f`](https://basescan.org/address/0xAEe7CdeEB72D645Fc9598d4AF47C43303A6c699f) [Verified]
 - **Chain ID**: 8453
-- **Deployed**: November 26, 2025
+- **Deployed**: December 12, 2025
 - **Explorer**: [Basescan](https://basescan.org)
 
 ### Base Sepolia Testnet
-- **PMM Contract**: [`0x8F6a072098B0440690f81246538CF761BE201C7F`](https://sepolia.basescan.org/address/0x8F6a072098B0440690f81246538CF761BE201C7F)
-- **TENBIN Token**: [`0x5399156BAab6A6e2C51D2239B23366dE66A01E5b`](https://sepolia.basescan.org/address/0x5399156BAab6A6e2C51D2239B23366dE66A01E5b)
+- **PMM Contract**: [`0x2642ED665649ac28bAC25B98f71491bD1a468b8d`](https://sepolia.basescan.org/address/0x2642ED665649ac28bAC25B98f71491bD1a468b8d)
+- **Token (TBD)**: [`0x25a8A0306DcB5a0d07A8Eb56d761E0fC7Dd29767`](https://sepolia.basescan.org/address/0x25a8A0306DcB5a0d07A8Eb56d761E0fC7Dd29767)
 - **Chain ID**: 84532
-- **Deployed**: November 26, 2025
+- **Deployed**: December 12, 2025
 - **Explorer**: [Sepolia Basescan](https://sepolia.basescan.org)
 - **Faucet**: [Base Sepolia Faucet](https://www.alchemy.com/faucets/base-sepolia)
 
@@ -24,40 +24,40 @@ A decentralized reputation system using coordinate-based markets to track trust 
 ## Overview
 
 PMM creates reputation markets where:
-- Each market exists at coordinates (x, y) where **x = distrust votes** and **y = trust votes**
+- Each market exists at coordinates (x, y) representing vote positions
 - Coordinates are valid when x>0, y>0 within bounds (max 1 billion each)
-- **Cost = sqrt(x² + y²) TENBIN** with 1% protocol fee
+- **Cost = sqrt(x² + y²) TBD** with configurable protocol fee (0-1%, default 1%)
 - Individual vote tracking ensures you can only sell votes you own
 - Built-in MEV protection with 2.5% default slippage tolerance
 - **Yield accrual** on held positions based on market count
 
 ### Key Features
 - Create markets for any numeric platform ID (via application workflow)
-- Buy votes to increase trust or distrust
+- Buy votes to change position on x or y axis
 - Sell only the votes you personally contributed
 - Earn yield on your holdings over time
 - No expiration - markets exist forever
 - Gas-efficient design for millions of users
 
-## TENBIN Token
+## Tenbin Dollar (TBD) Token
 
-PMM uses **TENBIN** as its native payment and reward token:
+PMM uses **Tenbin Dollar (TBD)** as its native payment and reward token:
 
-- **Name/Symbol**: TENBIN (`TENBIN`)
+- **Name/Symbol**: Tenbin Dollar (`TBD`)
 - **Decimals**: 6
-- **Initial Supply**: 1,000,000 TENBIN minted to deployer
+- **Initial Supply**: 11,110,000 TBD minted to deployer
 - **Roles**:
-  - **Minter**: Can mint unlimited TENBIN (set to PMM contract after deployment)
-  - **Burner**: Can burn TENBIN from any address (initially owner)
+  - **Minter**: Can mint unlimited TBD (set to PMM contract after deployment)
+  - **Burner**: Can burn TBD from any address (initially owner)
 - **No hard cap**: Minting is unlimited for yield distribution
 
 ### Deployment Environment Variables
 ```bash
-# Deploy fresh TENBIN + PMM
-DEPLOY_TENBIN=true npx hardhat run scripts/deploy.js --network base
+# Deploy fresh token + PMM
+DEPLOY_TOKEN=true npx hardhat run scripts/deploy.js --network base
 
-# Use existing TENBIN token
-PAYMENT_TOKEN=0xYourTENBIN npx hardhat run scripts/deploy.js --network base
+# Use existing token
+PAYMENT_TOKEN=0xYourToken npx hardhat run scripts/deploy.js --network base
 ```
 
 ## Quick Start
@@ -72,22 +72,22 @@ PAYMENT_TOKEN=0xYourTENBIN npx hardhat run scripts/deploy.js --network base
 ### Using JavaScript
 ```javascript
 const PMM_ADDRESS = "<PMM_PROXY_ADDRESS>";
-const TENBIN_ADDRESS = "<TENBIN_TOKEN_ADDRESS>";
+const TBD_ADDRESS = "<TBD_TOKEN_ADDRESS>";
 
-// Approve TENBIN first
+// Approve token first
 await tenbin.approve(PMM_ADDRESS, ethers.parseUnits("100", 6));
 
-// Apply to create a market (costs 10 TENBIN application fee)
+// Apply to create a market (costs 10 TBD application fee)
 await pmm.applyForMarket(1234567890);
 
 // After owner approval, vote to set initial position
 // Market starts at (0,0), first vote moves it to desired position
-await pmm.voteOnMarket(1234567890, 3, 4); // Costs ~5.05 TENBIN
+await pmm.voteOnMarket(1234567890, 3, 4); // Costs ~5.05 TBD
 
 // Or if directly creating (owner can bypass application):
 await pmm.createMarket(1234567890, 3, 4);
 
-// Vote to move market to (5,12) - costs ~8.08 TENBIN
+// Vote to move market to (5,12) - costs ~8.08 TBD
 await pmm.voteOnMarket(1234567890, 5, 12);
 
 // Claim accrued yield
@@ -110,14 +110,14 @@ python pmm_cookbook_testnet.py check-market 1234567890
 Cost = sqrt(x_new² + y_new²) - sqrt(x_current² + y_current²) + 1% fee
 ```
 
-The hypotenuse can be fractional; payments are calculated with token-decimal precision (6 decimals for TENBIN).
+The hypotenuse can be fractional; payments are calculated with token-decimal precision (6 decimals for TBD).
 
 | Action | From → To | Cost |
 |--------|-----------|------|
-| Create | (0,0) → (3,4) | 5.05 TENBIN |
-| Buy | (3,4) → (5,12) | 8.08 TENBIN |
-| Sell | (5,12) → (3,4) | -7.92 TENBIN (refund) |
-| Rebalance | (3,4) → (4,3) | 0 TENBIN |
+| Create | (0,0) → (3,4) | 5.05 TBD |
+| Buy | (3,4) → (5,12) | 8.08 TBD |
+| Sell | (5,12) → (3,4) | -7.92 TBD (refund) |
+| Rebalance | (3,4) → (4,3) | 0 TBD |
 
 ### Vote Tracking
 - When you create a market, you own all initial votes
@@ -125,25 +125,25 @@ The hypotenuse can be fractional; payments are calculated with token-decimal pre
 - You can only sell votes you previously bought
 - Your position accumulates across multiple transactions
 
-### Trust Score
+### Score
 ```
-Trust Score = y² / (x² + y²)
+Score = y² / (x² + y²)
 ```
-- (3,4) = 64% trust
-- (4,3) = 36% trust
-- (5,12) = 92% trust
+- (3,4) = 64%
+- (4,3) = 36%
+- (5,12) = 85%
 
 ## Market Application Flow
 
 To prevent spam and ensure quality markets, PMM uses an application/approval workflow:
 
-1. **Apply**: Anyone calls `applyForMarket(platformId)` with a **10 TENBIN** fee
+1. **Apply**: Anyone calls `applyForMarket(platformId)` with a **10 TBD** fee
 2. **Review**: Contract owner reviews pending applications
 3. **Approve/Deny**: Owner calls `approveMarket(platformId)` or `denyMarket(platformId)`
 4. **Trade**: Upon approval, market is created at (0,0) and anyone can vote
 
 ```javascript
-// Step 1: Applicant submits (10 TENBIN consumed regardless of outcome)
+// Step 1: Applicant submits (10 TBD consumed regardless of outcome)
 await tenbin.approve(PMM_ADDRESS, ethers.parseUnits("10", 6));
 await pmm.applyForMarket(1234567890);
 
@@ -152,7 +152,7 @@ await pmm.approveMarket(1234567890);
 
 // Step 3: Anyone can trade after approval
 await tenbin.approve(PMM_ADDRESS, ethers.parseUnits("100", 6));
-await pmm.voteOnMarket(1234567890, 3, 4); // Costs ~5.05 TENBIN
+await pmm.voteOnMarket(1234567890, 3, 4); // Costs ~5.05 TBD
 ```
 
 **Note**: The owner can also directly create markets using `createMarket()` without the application process.
@@ -164,28 +164,28 @@ PMM implements a yield system that rewards long-term holders:
 ### Yield Rate Formula
 ```
 Annual Yield Rate = K / sqrt(totalMarkets)
-where K = 0.75 * sqrt(π) ≈ 1.329
+where K = 4 / (3 * sqrt(π)) ≈ 0.752
 ```
 
 - More markets → lower individual yield rate (sustainable tokenomics)
-- Yield accrues linearly on your **cost basis** (trustCost + distrustCost)
+- Yield accrues linearly on your **cost basis** (yCost + xCost)
 
 ### Cost Basis Tracking
 For each user and market, PMM tracks:
-- `trustCost`: TENBIN spent on trust votes
-- `distrustCost`: TENBIN spent on distrust votes
+- `yCost`: TBD spent on y-axis votes
+- `xCost`: TBD spent on x-axis votes
 - `lastAccrual`: Timestamp of last yield calculation
 - `unclaimedYield`: Accumulated rewards pending claim
 
 ### How Yield Accrues
 ```
-reward = (trustCost + distrustCost) × annualRate × timeElapsed / year
+reward = (yCost + xCost) × annualRate × timeElapsed / year
 ```
 
-- **Buying**: Adds to cost basis (decomposed along trust/distrust path)
+- **Buying**: Adds to cost basis (decomposed along y/x path)
 - **Selling**: Reduces cost basis pro-rata for units sold
 - **Rebalancing**: No change to cost basis (same hypotenuse)
-- **Claiming**: Mints accrued TENBIN to caller, resets unclaimed to 0
+- **Claiming**: Mints accrued TBD to caller, resets unclaimed to 0
 
 ### Claiming Yield
 ```javascript
@@ -197,7 +197,7 @@ console.log("Annual rate:", Number(rateWad) / 1e18);
 await pmm.claimYield(1234567890);
 ```
 
-**Important**: PMM must be set as the TENBIN minter for yield claiming to work. Deployment scripts handle this automatically.
+**Important**: PMM must be set as the token minter for yield claiming to work. Deployment scripts handle this automatically.
 
 ## Contract Functions
 
@@ -207,7 +207,7 @@ await pmm.claimYield(1234567890);
 - `voteOnMarketWithSlippage(platformId, newX, newY, slippageBP)` - With custom slippage
 
 ### Application Functions
-- `applyForMarket(platformId)` - Submit application (10 TENBIN fee)
+- `applyForMarket(platformId)` - Submit application (10 TBD fee)
 - `approveMarket(platformId)` - Owner approves application
 - `denyMarket(platformId)` - Owner denies application
 
@@ -216,7 +216,7 @@ await pmm.claimYield(1234567890);
 - `currentAnnualYieldWad()` - Get current annual yield rate (WAD format)
 
 ### Read Functions
-- `getMarketState(platformId)` - Get position, trust score, total votes
+- `getMarketState(platformId)` - Get position, score, total votes
 - `getVoterPosition(platformId, voter)` - Check voter's owned votes
 - `holdings(platformId, voter)` - Get cost basis and unclaimed yield
 - `marketExistsFor(platformId)` - Check if market exists
@@ -244,9 +244,10 @@ Use `isValidCoordinate(x, y)` to check validity.
 
 ## Fee Distribution
 
-- 1% protocol fee on all transactions
+- **Configurable protocol fee**: 0% to 1% (default 1%)
+- Fee can be adjusted by owner or protocol fee recipient via `setProtocolFee()`
 - Split 50/50 between owner and protocol recipients
-- Owner functions: `distributeProtocolFees()`, `updateFeeRecipients()`
+- Owner functions: `distributeProtocolFees()`, `updateFeeRecipients()`, `setProtocolFee()`
 
 ```javascript
 // Check accumulated fees
@@ -262,6 +263,11 @@ await pmm.distributeProtocolFees(ethers.parseUnits("100", 6));
 // Individual withdrawals
 await pmm.withdrawToOwner(amount);
 await pmm.withdrawToProtocol(amount);
+
+// Set protocol fee (owner or protocol recipient)
+await pmm.setProtocolFee(50);  // Set to 0.5% (50 basis points)
+await pmm.setProtocolFee(0);   // Set to 0%
+await pmm.setProtocolFee(100); // Set to 1% (maximum)
 ```
 
 ## Safety Features
@@ -288,8 +294,8 @@ npx hardhat test
 # Start local node
 npm run node
 
-# Deploy with fresh TENBIN
-DEPLOY_TENBIN=true npx hardhat run scripts/deploy.js --network localhost
+# Deploy with fresh token
+DEPLOY_TOKEN=true npx hardhat run scripts/deploy.js --network localhost
 ```
 
 ### Deploy to Testnet
@@ -297,7 +303,7 @@ DEPLOY_TENBIN=true npx hardhat run scripts/deploy.js --network localhost
 # Set environment variables in .env
 # PRIVATE_KEY, BASE_SEPOLIA_RPC_URL
 
-DEPLOY_TENBIN=true npx hardhat run scripts/deploy.js --network base-sepolia
+DEPLOY_TOKEN=true npx hardhat run scripts/deploy.js --network base-sepolia
 ```
 
 ### Deploy to Mainnet
@@ -305,7 +311,7 @@ DEPLOY_TENBIN=true npx hardhat run scripts/deploy.js --network base-sepolia
 # Set environment variables in .env
 # PRIVATE_KEY, BASE_RPC_URL
 
-DEPLOY_TENBIN=true npx hardhat run scripts/deploy-mainnet.js --network base
+DEPLOY_TBD=true npx hardhat run scripts/deploy-mainnet.js --network base
 ```
 
 ### Python Cookbooks

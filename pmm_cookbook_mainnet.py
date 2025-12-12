@@ -3,13 +3,12 @@
 Pythagorean Market Maker (PMM) Cookbook - Base Mainnet Version
 Complete guide for interacting with PMM on Base Mainnet
 
-⚠️  WARNING: This is for BASE MAINNET with REAL TENBIN!
+⚠️  WARNING: This is for BASE MAINNET with REAL TBD!
 ⚠️  All transactions use real money. Be careful!
 
 Contract Addresses:
-# TODO: Update these addresses once contracts are deployed on Base Mainnet
-- PythagoreanMarketMaker: TODO
-- TENBIN Token: TODO
+- PythagoreanMarketMaker: 0xff763ea9508Be30840edB942D4ffDEAaa4Ec9FEc
+- Tenbin Dollar (TBD) Token: 0xAEe7CdeEB72D645Fc9598d4AF47C43303A6c699f
 - Owner Fee Recipient: 0x2dfc776B09234f617DFc38Cb8De1BB2B0B7C4E5B
 - Protocol Fee Recipient: 0xb322A547De3308C2426aEa700c8176574E57eEe6
 
@@ -20,7 +19,7 @@ Usage Examples:
   # Check if market exists (no private key needed)
   python pmm_cookbook_mainnet.py check-market 1234567890
   
-  # Get TENBIN information
+  # Get TBD information
   python pmm_cookbook_mainnet.py get-token-info
   
   # Check contract health
@@ -43,9 +42,9 @@ BASE_MAINNET_RPC = (
 )
 CHAIN_ID = 8453
 
-# Base Mainnet Deployed Addresses (November 26, 2025)
-PMM_ADDRESS = "0x92AcC35FE215a065146F93132cF27D5C3E39D826"
-TENBIN_ADDRESS = "0x420331D6396B7290B57Ac4633983FC9a95F9913C"
+# Base Mainnet Deployed Addresses (December 12, 2025)
+PMM_ADDRESS = "0xff763ea9508Be30840edB942D4ffDEAaa4Ec9FEc"
+TOKEN_ADDRESS = "0xAEe7CdeEB72D645Fc9598d4AF47C43303A6c699f"
 
 PMM_ABI = [
     # Market Creation
@@ -140,8 +139,8 @@ PMM_ABI = [
         ],
         "name": "holdings",
         "outputs": [
-            {"name": "trustCost", "type": "uint256"},
-            {"name": "distrustCost", "type": "uint256"},
+            {"name": "yCost", "type": "uint256"},
+            {"name": "xCost", "type": "uint256"},
             {"name": "lastAccrual", "type": "uint256"},
             {"name": "unclaimedYield", "type": "uint256"},
         ],
@@ -154,7 +153,7 @@ PMM_ABI = [
         "outputs": [
             {"name": "x", "type": "uint256"},
             {"name": "y", "type": "uint256"},
-            {"name": "trustScore", "type": "uint256"},
+            {"name": "score", "type": "uint256"},
             {"name": "totalVotes", "type": "uint256"},
         ],
         "type": "function",
@@ -173,15 +172,27 @@ PMM_ABI = [
     },
     {
         "inputs": [{"name": "x", "type": "uint256"}, {"name": "y", "type": "uint256"}],
-        "name": "calculateTrustScore",
+        "name": "calculateScore",
         "outputs": [{"name": "", "type": "uint256"}],
         "type": "function",
     },
-    # Constants
+    # Fee configuration
     {
         "inputs": [],
-        "name": "PROTOCOL_FEE_BASIS_POINTS",
+        "name": "MAX_PROTOCOL_FEE_BASIS_POINTS",
         "outputs": [{"name": "", "type": "uint256"}],
+        "type": "function",
+    },
+    {
+        "inputs": [],
+        "name": "protocolFeeBasisPoints",
+        "outputs": [{"name": "", "type": "uint256"}],
+        "type": "function",
+    },
+    {
+        "inputs": [{"name": "newFeeBasisPoints", "type": "uint256"}],
+        "name": "setProtocolFee",
+        "outputs": [],
         "type": "function",
     },
     {
@@ -307,8 +318,8 @@ PMM_ABI = [
         ],
         "name": "getVoterPosition",
         "outputs": [
-            {"name": "trustVotes", "type": "uint256"},
-            {"name": "distrustVotes", "type": "uint256"},
+            {"name": "yVotes", "type": "uint256"},
+            {"name": "xVotes", "type": "uint256"},
             {"name": "exists", "type": "bool"},
         ],
         "type": "function",
@@ -399,7 +410,7 @@ PMM_ABI = [
     },
 ]
 
-TENBIN_ABI = [
+TOKEN_ABI = [
     {
         "inputs": [
             {"name": "spender", "type": "address"},
@@ -541,8 +552,8 @@ class CoordinateHelper:
         return hypotenuse_squared <= max_hyp_squared
 
     @staticmethod
-    def calculate_trust_score(x: int, y: int) -> float:
-        """Calculate trust score as a decimal (0 to 1)."""
+    def calculate_score(x: int, y: int) -> float:
+        """Calculate score as a decimal (0 to 1), computed as y²/(x²+y²)."""
         if x == 0 and y == 0:
             return 0.0
         return (y * y) / (x * x + y * y)
@@ -599,7 +610,7 @@ class PMM_Cookbook:
 
         # Initialize contracts
         self.pmm = self.w3.eth.contract(address=PMM_ADDRESS, abi=PMM_ABI)
-        self.tenbin = self.w3.eth.contract(address=TENBIN_ADDRESS, abi=TENBIN_ABI)
+        self.tenbin = self.w3.eth.contract(address=TOKEN_ADDRESS, abi=TOKEN_ABI)
 
         self.account = None
         if private_key:
@@ -611,14 +622,23 @@ class PMM_Cookbook:
         try:
             self.token_decimals = self.tenbin.functions.decimals().call()
         except:
-            self.token_decimals = 6  # Default for TENBIN
+            self.token_decimals = 6  # Default for TBD
 
         self.token_multiplier = 10 ** self.token_decimals
+
+        # Cache token symbol for display formatting (fallback to TBD)
+        try:
+            self.token_symbol = self.tenbin.functions.symbol().call()
+        except Exception:
+            self.token_symbol = "TBD"
 
         # Try to get contract constants
         try:
             self.protocol_fee_basis_points = (
-                self.pmm.functions.PROTOCOL_FEE_BASIS_POINTS().call()
+                self.pmm.functions.protocolFeeBasisPoints().call()
+            )
+            self.max_protocol_fee_basis_points = (
+                self.pmm.functions.MAX_PROTOCOL_FEE_BASIS_POINTS().call()
             )
             self.minimum_votes = self.pmm.functions.MINIMUM_VOTES().call()
             self.default_slippage_basis_points = (
@@ -627,6 +647,7 @@ class PMM_Cookbook:
         except:
             # Defaults if contract not deployed
             self.protocol_fee_basis_points = 100  # 1%
+            self.max_protocol_fee_basis_points = 100  # Max 1%
             self.minimum_votes = 7
             self.default_slippage_basis_points = 250  # 2.5%
 
@@ -634,7 +655,7 @@ class PMM_Cookbook:
 
     def format_token(self, amount: int) -> str:
         """Format token amount for display."""
-        return f"{amount / self.token_multiplier:,.6f} TENBIN"
+        return f"{amount / self.token_multiplier:,.6f} {self.token_symbol}"
 
     def calculate_hypotenuse_cost(
         self, current_x: int, current_y: int, new_x: int, new_y: int
@@ -679,7 +700,7 @@ class PMM_Cookbook:
                 "action": "rebalance",
                 "hypotenuse_change": 0,
                 "cost": 0,
-                "cost_formatted": "0.000000 TENBIN",
+                "cost_formatted": "0.000000 TBD",
             }
 
     # ==================== Read Functions ====================
@@ -691,7 +712,7 @@ class PMM_Cookbook:
         if not exists:
             return {"exists": False, "platform_id": platform_id}
 
-        x, y, trust_score_raw, total_votes = self.pmm.functions.getMarketState(
+        x, y, score_raw, total_votes = self.pmm.functions.getMarketState(
             platform_id
         ).call()
 
@@ -700,8 +721,8 @@ class PMM_Cookbook:
             "platform_id": platform_id,
             "x": x,
             "y": y,
-            "trust_score": trust_score_raw / 10**18,
-            "trust_score_percent": (trust_score_raw / 10**18) * 100,
+            "score": score_raw / 10**18,
+            "score_percent": (score_raw / 10**18) * 100,
             "total_votes": total_votes,
             "position": f"({x}, {y})",
             "hypotenuse": math.sqrt(x * x + y * y),
@@ -709,7 +730,7 @@ class PMM_Cookbook:
 
     def check_voter_position(self, platform_id: int, voter_address: str) -> Dict:
         """Check a voter's position in a market."""
-        trust_votes, distrust_votes, exists = self.pmm.functions.getVoterPosition(
+        y_votes, x_votes, exists = self.pmm.functions.getVoterPosition(
             platform_id, voter_address
         ).call()
 
@@ -720,27 +741,27 @@ class PMM_Cookbook:
             "exists": True,
             "platform_id": platform_id,
             "voter": voter_address,
-            "trust_votes": trust_votes,
-            "distrust_votes": distrust_votes,
-            "total_votes": trust_votes + distrust_votes,
-            "position": f"({distrust_votes}, {trust_votes})",
+            "y_votes": y_votes,
+            "x_votes": x_votes,
+            "total_votes": y_votes + x_votes,
+            "position": f"({x_votes}, {y_votes})",
         }
 
     def check_holdings(self, platform_id: int, user_address: str) -> Dict:
         """Check user's holdings and unclaimed yield for a market."""
-        trust_cost, distrust_cost, last_accrual, unclaimed_yield = (
+        y_cost, x_cost, last_accrual, unclaimed_yield = (
             self.pmm.functions.holdings(platform_id, user_address).call()
         )
 
         return {
             "platform_id": platform_id,
             "user": user_address,
-            "trust_cost": trust_cost,
-            "trust_cost_formatted": self.format_token(trust_cost),
-            "distrust_cost": distrust_cost,
-            "distrust_cost_formatted": self.format_token(distrust_cost),
-            "total_cost_basis": trust_cost + distrust_cost,
-            "total_cost_basis_formatted": self.format_token(trust_cost + distrust_cost),
+            "y_cost": y_cost,
+            "y_cost_formatted": self.format_token(y_cost),
+            "x_cost": x_cost,
+            "x_cost_formatted": self.format_token(x_cost),
+            "total_cost_basis": y_cost + x_cost,
+            "total_cost_basis_formatted": self.format_token(y_cost + x_cost),
             "last_accrual": last_accrual,
             "unclaimed_yield": unclaimed_yield,
             "unclaimed_yield_formatted": self.format_token(unclaimed_yield),
@@ -789,8 +810,8 @@ class PMM_Cookbook:
             "y": y,
             "valid": is_valid_chain,
             "total_votes": x + y,
-            "trust_score": self.helper.calculate_trust_score(x, y),
-            "trust_score_percent": self.helper.calculate_trust_score(x, y) * 100,
+            "score": self.helper.calculate_score(x, y),
+            "score_percent": self.helper.calculate_score(x, y) * 100,
             "hypotenuse": self.helper.calculate_hypotenuse(x, y),
         }
 
@@ -806,7 +827,7 @@ class PMM_Cookbook:
         return result
 
     def check_balance(self, address: str) -> Dict:
-        """Check ETH and TENBIN balances."""
+        """Check ETH and token balances."""
         eth_balance = self.w3.eth.get_balance(address)
 
         try:
@@ -823,7 +844,7 @@ class PMM_Cookbook:
         }
 
     def check_allowance(self, owner_address: str) -> Dict:
-        """Check TENBIN allowance for PMM contract."""
+        """Check token allowance for PMM contract."""
         try:
             allowance = self.tenbin.functions.allowance(owner_address, PMM_ADDRESS).call()
         except:
@@ -854,6 +875,21 @@ class PMM_Cookbook:
                 "current_account": self.account.address if self.account else None,
                 "is_owner": False,
             }
+
+    def get_protocol_fee_info(self) -> Dict:
+        """Get current protocol fee information."""
+        try:
+            current_fee = self.pmm.functions.protocolFeeBasisPoints().call()
+            max_fee = self.pmm.functions.MAX_PROTOCOL_FEE_BASIS_POINTS().call()
+
+            return {
+                "current_fee_basis_points": current_fee,
+                "current_fee_percent": current_fee / 100,
+                "max_fee_basis_points": max_fee,
+                "max_fee_percent": max_fee / 100,
+            }
+        except Exception as e:
+            return {"error": str(e)}
 
     def check_accumulated_fees(self) -> Dict:
         """Check accumulated protocol fees."""
@@ -905,7 +941,7 @@ class PMM_Cookbook:
             return {"error": str(e), "health_status": "unknown"}
 
     def get_token_info(self) -> Dict:
-        """Get information about the TENBIN token."""
+        """Get information about the token."""
         try:
             name = self.tenbin.functions.name().call()
             symbol = self.tenbin.functions.symbol().call()
@@ -919,7 +955,7 @@ class PMM_Cookbook:
 
             return {
                 "network": "Base Mainnet",
-                "address": TENBIN_ADDRESS,
+                "address": TOKEN_ADDRESS,
                 "name": name,
                 "symbol": symbol,
                 "decimals": decimals,
@@ -932,7 +968,7 @@ class PMM_Cookbook:
         except Exception as e:
             return {
                 "network": "Base Mainnet",
-                "address": TENBIN_ADDRESS,
+                "address": TOKEN_ADDRESS,
                 "error": str(e),
                 "note": "Contract may not be deployed yet",
             }
@@ -965,7 +1001,7 @@ class PMM_Cookbook:
         return tx_hash.hex()
 
     def approve_tenbin(self, amount: float) -> str:
-        """Approve PMM to spend TENBIN."""
+        """Approve PMM to spend token."""
         amount_wei = int(amount * self.token_multiplier)
 
         print(f"\nApproving {self.format_token(amount_wei)} for PMM...")
@@ -975,7 +1011,7 @@ class PMM_Cookbook:
         )
 
     def apply_for_market(self, platform_id: int) -> str:
-        """Apply to create a new market (costs 10 TENBIN)."""
+        """Apply to create a new market (costs 10 tokens)."""
         if not self.account:
             raise ValueError("Private key required for transactions")
 
@@ -989,7 +1025,7 @@ class PMM_Cookbook:
             raise ValueError(f"Application already pending for platform {platform_id}")
 
         print(f"\nApplying for market {platform_id}")
-        print("Application fee: 10 TENBIN")
+        print("Application fee: 10 tokens")
 
         return self._build_and_send_tx(
             self.pmm.functions.applyForMarket(platform_id),
@@ -1027,7 +1063,7 @@ class PMM_Cookbook:
 
         print(f"\nCreating market for platform {platform_id}")
         print(f"Position: ({initial_x}, {initial_y})")
-        print(f"Trust score: {validation['trust_score_percent']:.1f}%")
+        print(f"Score: {validation['score_percent']:.1f}%")
         print(f"Cost: {cost_info['total_cost_formatted']}")
 
         return self._build_and_send_tx(
@@ -1070,7 +1106,7 @@ class PMM_Cookbook:
 
         print(f"\nVoting on platform {platform_id}")
         print(f"Position: ({current_state['x']}, {current_state['y']}) → ({new_x}, {new_y})")
-        print(f"Trust: {current_state['trust_score_percent']:.1f}% → {validation['trust_score_percent']:.1f}%")
+        print(f"Score: {current_state['score_percent']:.1f}% → {validation['score_percent']:.1f}%")
 
         if cost_info["action"] == "buy":
             print(f"Cost: {cost_info['total_cost_formatted']}")
@@ -1118,6 +1154,24 @@ class PMM_Cookbook:
                 gas=200000
             )
 
+    def set_protocol_fee(self, fee_basis_points: int) -> str:
+        """Set the protocol fee (owner or protocol recipient only).
+        
+        Args:
+            fee_basis_points: Fee in basis points (0-100, where 100 = 1%)
+        """
+        if not self.account:
+            raise ValueError("Private key required for transactions")
+
+        if fee_basis_points > 100:
+            raise ValueError("Fee cannot exceed 100 basis points (1%)")
+
+        print(f"\n⚙️ Setting protocol fee to {fee_basis_points} basis points ({fee_basis_points/100}%)")
+        return self._build_and_send_tx(
+            self.pmm.functions.setProtocolFee(fee_basis_points),
+            gas=100000
+        )
+
 
 # ==================== CLI Interface ====================
 
@@ -1128,9 +1182,10 @@ def main():
         print("Usage: python pmm_cookbook_mainnet.py <command> [args]")
         print("\nAvailable commands:")
         print("  check-market <platform_id>     - Check market state")
-        print("  get-token-info                 - Get TENBIN token info")
+        print("  get-token-info                 - Get token info")
         print("  health                         - Check contract health")
         print("  yield-rate                     - Get current yield rate")
+        print("  fee-info                       - Get protocol fee info")
         print("  create-wallet                  - Generate new wallet")
         return
 
@@ -1149,7 +1204,7 @@ def main():
 
     elif command == "get-token-info":
         result = cookbook.get_token_info()
-        print("\nTENBIN Token Info:")
+        print("\nToken Info:")
         for key, value in result.items():
             print(f"  {key}: {value}")
 
@@ -1162,6 +1217,12 @@ def main():
     elif command == "yield-rate":
         result = cookbook.get_current_yield_rate()
         print("\nYield Rate:")
+        for key, value in result.items():
+            print(f"  {key}: {value}")
+
+    elif command == "fee-info":
+        result = cookbook.get_protocol_fee_info()
+        print("\nProtocol Fee Info:")
         for key, value in result.items():
             print(f"  {key}: {value}")
 

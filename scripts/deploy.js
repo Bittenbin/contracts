@@ -6,18 +6,18 @@ async function main() {
   const [deployer] = await ethers.getSigners();
   console.log("Deploying contracts with account:", deployer.address);
 
-  // Check if we should deploy TENBIN or use existing
-  const deployTenbin = process.env.DEPLOY_TENBIN === "true";
+  // Check if we should deploy token or use existing
+  const deployToken = process.env.DEPLOY_TOKEN === "true";
   let paymentTokenAddress;
   let tenbinInstance;
 
-  if (deployTenbin) {
-    console.log("Deploying TENBIN token...");
+  if (deployToken) {
+    console.log("Deploying Tenbin Dollar (TBD) token...");
     const TenbinToken = await ethers.getContractFactory("TenbinToken");
     tenbinInstance = await TenbinToken.deploy((await ethers.getSigners())[0].address);
     await tenbinInstance.waitForDeployment();
     paymentTokenAddress = await tenbinInstance.getAddress();
-    console.log("TENBIN deployed to:", paymentTokenAddress);
+    console.log("TBD token deployed to:", paymentTokenAddress);
   } else {
     paymentTokenAddress = process.env.PAYMENT_TOKEN;
     console.log("Using existing payment token:", paymentTokenAddress);
@@ -34,10 +34,10 @@ async function main() {
   await pmm.waitForDeployment();
   console.log("PythagoreanMarketMaker deployed to:", await pmm.getAddress());
   
-  // If TENBIN was deployed in this script, transfer minting power to PMM
+  // If TBD was deployed in this script, transfer minting power to PMM
   if (tenbinInstance) {
     await (await tenbinInstance.setMinter(await pmm.getAddress())).wait();
-    console.log("TENBIN minter set to PMM:", await pmm.getAddress());
+    console.log("TBD minter set to PMM:", await pmm.getAddress());
   } else {
     console.log("Note: Using existing payment token; ensure PMM has minting rights if required.");
   }
@@ -45,7 +45,7 @@ async function main() {
   // Verify the deployment
   console.log("\nVerifying deployment...");
   console.log("Payment token:", await pmm.paymentToken());
-  console.log("Protocol fee:", await pmm.PROTOCOL_FEE_BASIS_POINTS(), "basis points (1%)");
+  console.log("Protocol fee:", await pmm.protocolFeeBasisPoints(), "basis points (default 1%, max", await pmm.MAX_PROTOCOL_FEE_BASIS_POINTS(), ")");
   console.log("Minimum votes:", await pmm.MINIMUM_VOTES());
   
   // Show fee distribution addresses
@@ -77,6 +77,10 @@ async function main() {
 
   // Save deployment addresses
   const fs = require("fs");
+  // Ensure deployments directory exists
+  if (!fs.existsSync("deployments")) {
+    fs.mkdirSync("deployments");
+  }
   const deploymentInfo = {
     network: network.name,
     contracts: {
@@ -98,21 +102,21 @@ async function main() {
     console.log("------------------");
     console.log("1. Create a market for platform ID 1234567890:");
     console.log(`   await pmm.createMarket(1234567890, 3, 4)`);
-    console.log("   Cost: sqrt(3² + 4²) = 5 TENBIN + 0.05 fee = 5.05 TENBIN");
-    console.log("   You own: 3 distrust, 4 trust votes\n");
+    console.log("   Cost: sqrt(3² + 4²) = 5 TBD + 0.05 fee = 5.05 TBD");
+    console.log("   You own: 3 x-votes, 4 y-votes\n");
     
-    console.log("2. Vote to increase trust:");
+    console.log("2. Vote to increase y:");
     console.log(`   await pmm.voteOnMarket(1234567890, 5, 12)`);
-    console.log("   Cost: sqrt(5² + 12²) - sqrt(3² + 4²) = 13 - 5 = 8 TENBIN + fee");
-    console.log("   You gain: 2 distrust, 8 trust votes\n");
+    console.log("   Cost: sqrt(5² + 12²) - sqrt(3² + 4²) = 13 - 5 = 8 TBD + fee");
+    console.log("   You gain: 2 x-votes, 8 y-votes\n");
     
     console.log("3. Check your position:");
     console.log(`   await pmm.getVoterPosition(1234567890, yourAddress)`);
-    console.log("   Returns: trustVotes, distrustVotes, exists\n");
+    console.log("   Returns: yVotes, xVotes, exists\n");
     
     console.log("4. Sell some votes:");
     console.log(`   await pmm.voteOnMarket(1234567890, 3, 4)`);
-    console.log("   Refund: 8 TENBIN - 0.08 fee = 7.92 TENBIN");
+    console.log("   Refund: 8 TBD - 0.08 fee = 7.92 TBD");
     console.log("   ⚠️  You can only sell votes you own!\n");
     
     console.log("Key Changes:");
@@ -133,7 +137,7 @@ async function main() {
     
     console.log("3. Distribute specific amount:");
     console.log(`   await pmm.distributeProtocolFees(ethers.parseUnits("10", 6))`);
-    console.log("   Distributes 10 TENBIN (5 to each recipient)\n");
+    console.log("   Distributes 10 TBD (5 to each recipient)\n");
     
     console.log("4. Individual withdrawals:");
     console.log(`   await pmm.withdrawToOwner(amount)`);

@@ -1,8 +1,8 @@
 const { ethers, upgrades } = require("hardhat");
 const readline = require("readline");
 
-// Optionally use an existing TENBIN token address from env, or deploy if DEPLOY_TENBIN is true
-const TENBIN_TOKEN_ADDRESS = process.env.PAYMENT_TOKEN || "";
+// Optionally use an existing token address from env, or deploy if DEPLOY_TOKEN is true
+const TOKEN_ADDRESS_FROM_ENV = process.env.PAYMENT_TOKEN || "";
 
 // Create readline interface for user confirmation
 const rl = readline.createInterface({
@@ -33,7 +33,7 @@ async function main() {
   console.log("Network: Base Mainnet");
   console.log("Deployer:", deployer.address);
   console.log("Balance:", ethers.formatEther(balance), "ETH");
-  console.log("TENBIN Address (if provided):", TENBIN_TOKEN_ADDRESS || "(will deploy)");
+  console.log("Token Address (if provided):", TOKEN_ADDRESS_FROM_ENV || "(will deploy)");
   console.log("\n⚠️  IMPORTANT: This is a MAINNET deployment with REAL funds!");
   
   // Check if deployer has enough ETH
@@ -45,21 +45,21 @@ async function main() {
 
   let paymentTokenAddress;
   let tenbinInstance = null;
-  if (process.env.DEPLOY_TENBIN === "true" || !TENBIN_TOKEN_ADDRESS) {
-    console.log("\nDeploying TENBIN token on Base mainnet...");
+  if (process.env.DEPLOY_TOKEN === "true" || !TOKEN_ADDRESS_FROM_ENV) {
+    console.log("\nDeploying token on Base mainnet...");
     const TenbinToken = await ethers.getContractFactory("TenbinToken");
     tenbinInstance = await TenbinToken.deploy(deployer.address);
     await tenbinInstance.waitForDeployment();
     paymentTokenAddress = await tenbinInstance.getAddress();
-    console.log("TENBIN deployed to:", paymentTokenAddress);
+    console.log("Token deployed to:", paymentTokenAddress);
   } else {
-    // Verify TENBIN contract exists
-    const tenbinCode = await ethers.provider.getCode(TENBIN_TOKEN_ADDRESS);
+    // Verify token contract exists
+    const tenbinCode = await ethers.provider.getCode(TOKEN_ADDRESS_FROM_ENV);
     if (tenbinCode === "0x") {
-      console.error("\n❌ ERROR: TENBIN contract not found at provided address!");
+      console.error("\n❌ ERROR: Token contract not found at provided address!");
       process.exit(1);
     }
-    paymentTokenAddress = TENBIN_TOKEN_ADDRESS;
+    paymentTokenAddress = TOKEN_ADDRESS_FROM_ENV;
   }
 
   // Get user confirmation
@@ -94,12 +94,12 @@ async function main() {
     
     console.log("✅ PythagoreanMarketMaker deployed to:", proxyAddress);
     
-    // Transfer TENBIN minting power to PMM if TENBIN was deployed here
+    // Transfer token minting power to PMM if token was deployed here
     if (tenbinInstance) {
       await (await tenbinInstance.setMinter(proxyAddress)).wait();
-      console.log("TENBIN minter set to PMM:", proxyAddress);
+      console.log("TBD minter set to PMM:", proxyAddress);
     } else {
-      console.log("Note: Using existing TENBIN; ensure PMM has minting rights if required.");
+      console.log("Note: Using existing payment token; ensure PMM has minting rights if required.");
     }
     
     // Get implementation address
@@ -109,12 +109,13 @@ async function main() {
     // Verify deployment
     console.log("\n🔍 Verifying deployment...");
     const paymentToken = await pmm.paymentToken();
-    const protocolFee = await pmm.PROTOCOL_FEE_BASIS_POINTS();
+    const protocolFee = await pmm.protocolFeeBasisPoints();
+    const maxFee = await pmm.MAX_PROTOCOL_FEE_BASIS_POINTS();
     const minVotes = await pmm.MINIMUM_VOTES();
     const owner = await pmm.owner();
     
     console.log("Payment token:", paymentToken);
-    console.log("Protocol fee:", protocolFee.toString(), "basis points");
+    console.log("Protocol fee:", protocolFee.toString(), "basis points (max:", maxFee.toString(), ")");
     console.log("Minimum votes:", minVotes.toString());
     console.log("Contract owner:", owner);
     
@@ -137,7 +138,7 @@ async function main() {
       deploymentBlock: await ethers.provider.getBlockNumber(),
       timestamp: new Date().toISOString(),
       gasPrice: (await ethers.provider.getFeeData()).gasPrice?.toString(),
-      notes: "Base Mainnet deployment with TENBIN as payment token"
+      notes: "Base Mainnet deployment with TBD as payment token"
     };
     
     // Ensure deployments directory exists

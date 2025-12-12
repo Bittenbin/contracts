@@ -4,8 +4,8 @@
 
 The Pythagorean Market Maker (PMM) uses a **coordinate-based system** to represent market positions for platform entities. Each market occupies a coordinate (x, y) in a 2D space where:
 
-- **x = Distrust votes** (stake against the entity)
-- **y = Trust votes** (stake for the entity)
+- **x = X-axis votes** (one dimension of positioning)
+- **y = Y-axis votes** (other dimension of positioning)
 
 > **Note**: Despite the "Pythagorean" name, the contract now accepts **any positive coordinates** within bounds. The name is historical - coordinates do NOT need to form Pythagorean triples.
 
@@ -24,8 +24,8 @@ When **creating** a market, additional rules apply:
 - Total votes `x + y ≥ MINIMUM_VOTES` (7)
 
 ### Examples of Valid Coordinates
-| Position | Total Votes | Hypotenuse | Trust Score | Notes |
-|----------|-------------|------------|-------------|-------|
+| Position | Total Votes | Hypotenuse | Score | Notes |
+|----------|-------------|------------|-------|-------|
 | (3, 4) | 7 | 5.00 | 64.0% | Classic Pythagorean triple |
 | (5, 12) | 17 | 13.00 | 85.2% | Integer hypotenuse |
 | (4, 5) | 9 | 6.40 | 61.0% | Non-integer hypotenuse ✓ |
@@ -34,46 +34,61 @@ When **creating** a market, additional rules apply:
 
 ## Pricing Formula
 
-### Cost = Hypotenuse in TENBIN
+### Cost = Hypotenuse in TBD
 
 The cost of a market position is determined by its **hypotenuse** (distance from origin):
 
 ```
-Cost = sqrt(x² + y²) TENBIN + 1% protocol fee
+Cost = sqrt(x² + y²) TBD + protocol fee
 ```
 
-### Transaction Types
+### Configurable Protocol Fee
+
+The protocol fee is **configurable** by the owner or protocol fee recipient:
+- **Range**: 0% to 1% (0-100 basis points)
+- **Default**: 1% (100 basis points)
+- **Updatable by**: Contract owner OR protocol fee recipient
+
+```solidity
+// Set protocol fee to 0.5%
+pmm.setProtocolFee(50); // 50 basis points = 0.5%
+
+// Set protocol fee to 0%
+pmm.setProtocolFee(0);
+```
+
+### Transaction Types (at default 1% fee)
 
 | Action | Formula | Example |
 |--------|---------|---------|
-| **Create** | `sqrt(x² + y²) * 1.01` | (3,4) → 5.05 TENBIN |
-| **Buy** | `(newHyp - currentHyp) * 1.01` | (3,4)→(5,12) = 8.08 TENBIN |
-| **Sell** | `(currentHyp - newHyp) * 0.99` | (5,12)→(3,4) = 7.92 TENBIN refund |
-| **Rebalance** | 0 (same hypotenuse) | (5,12)→(12,5) = 0 TENBIN |
+| **Create** | `sqrt(x² + y²) * (1 + fee%)` | (3,4) → 5.05 TBD |
+| **Buy** | `(newHyp - currentHyp) * (1 + fee%)` | (3,4)→(5,12) = 8.08 TBD |
+| **Sell** | `(currentHyp - newHyp) * (1 - fee%)` | (5,12)→(3,4) = 7.92 TBD refund |
+| **Rebalance** | 0 (same hypotenuse) | (5,12)→(12,5) = 0 TBD |
 
 ### Fractional Hypotenuse Handling
 - The hypotenuse can be any positive real number
-- Payments are calculated with 6-decimal precision (TENBIN decimals)
+- Payments are calculated with 6-decimal precision (TBD decimals)
 - Example: Position (4,5) has hypotenuse √41 ≈ 6.403124
-  - Cost = 6.403124 TENBIN + 0.064031 fee = 6.467155 TENBIN
+  - Cost = 6.403124 TBD + 0.064031 fee = 6.467155 TBD
 
-## Trust Score
+## Score
 
-The trust score represents the proportion of trust in a market:
+The score represents the position's y-axis proportion:
 
 ```
-Trust Score = y² / (x² + y²)
+Score = y² / (x² + y²)
 ```
 
-### Trust Score Properties
+### Score Properties
 - **Range**: 0 to 1 (displayed as 0% to 100%)
 - **Neutral**: 50% at x = y (genesis line, not allowed for creation)
-- **Trust-leaning**: > 50% when y > x
-- **Distrust-leaning**: < 50% when x > y
+- **Y-leaning**: > 50% when y > x
+- **X-leaning**: < 50% when x > y
 
-### Trust Score Examples
-| Position | Calculation | Trust Score |
-|----------|-------------|-------------|
+### Score Examples
+| Position | Calculation | Score |
+|----------|-------------|-------|
 | (3, 4) | 16/25 | 64% |
 | (4, 3) | 9/25 | 36% |
 | (5, 12) | 144/169 | 85.2% |
@@ -84,7 +99,7 @@ Trust Score = y² / (x² + y²)
 
 Markets are not created directly. Instead:
 
-1. **Apply**: User calls `applyForMarket(platformId)` with 10 TENBIN fee
+1. **Apply**: User calls `applyForMarket(platformId)` with 10 TBD fee
 2. **Review**: Contract owner reviews the application
 3. **Approve/Deny**: Owner calls `approveMarket()` or `denyMarket()`
 4. **Initial Position**: Approved market starts at (0, 0)
@@ -99,7 +114,7 @@ PMM rewards long-term holders with yield on their positions:
 ### Annual Yield Rate
 ```
 Rate = K / sqrt(totalMarkets)
-where K = 0.75 * sqrt(π) ≈ 1.329
+where K = 4 / (3 * sqrt(π)) ≈ 0.752
 ```
 
 - More markets → lower individual yield rate
@@ -107,14 +122,14 @@ where K = 0.75 * sqrt(π) ≈ 1.329
 
 ### Cost Basis Tracking
 For each user and market, PMM tracks:
-- **trustCost**: TENBIN spent on trust votes
-- **distrustCost**: TENBIN spent on distrust votes
+- **yCost**: TBD spent on y-axis votes
+- **xCost**: TBD spent on x-axis votes
 - **lastAccrual**: Timestamp of last yield calculation
 - **unclaimedYield**: Accumulated rewards
 
 ### Yield Accrual
 ```
-Reward = (trustCost + distrustCost) × annualRate × (now - lastAccrual) / year
+Reward = (yCost + xCost) × annualRate × (now - lastAccrual) / year
 ```
 
 - Accrues linearly over time
@@ -123,19 +138,19 @@ Reward = (trustCost + distrustCost) × annualRate × (now - lastAccrual) / year
 
 ## Market Evolution Examples
 
-### Trust Building Path
-A market gaining community trust:
+### Y-Building Path
+A market increasing y-score:
 ```
 (0,0) → (4, 3) → (3, 4) → (5, 12) → (8, 15)
-Trust:  N/A     36%      64%       85%       78%
+Score:  N/A     36%      64%       85%       78%
 Cost:   0       5.05     0         8.08      7.07
 ```
 
-### Controversy Path  
-A market becoming controversial:
+### X-Building Path  
+A market increasing x proportion:
 ```
 (0,0) → (3, 4) → (5, 12) → (12, 5) → (20, 21)
-Trust:  N/A     64%       85%       15%       52%
+Score:  N/A     64%       85%       15%       52%
 ```
 
 ### Rebalancing (No Cost)
@@ -155,16 +170,16 @@ Each coordinate can only be occupied by **one market**:
 ### Popular Coordinates
 Some coordinates are more desirable:
 - **Pythagorean triples**: Integer hypotenuse = cleaner costs
-- **Low coordinates**: Cheaper to create (e.g., (3,4) = 5 TENBIN)
-- **High trust**: e.g., (5, 12) with 85% trust score
-- **Balanced**: e.g., (20, 21) near 50% for neutral platforms
+- **Low coordinates**: Cheaper to create (e.g., (3,4) = 5 TBD)
+- **High y-score**: e.g., (5, 12) with 85% score
+- **Balanced**: e.g., (20, 21) near 50% for neutral markets
 
 ## Best Practices
 
 ### Starting a Market
-Choose coordinates that reflect initial sentiment:
-- **Positive outlook**: Start trust-leaning, e.g., (3, 4), (5, 12)
-- **Negative outlook**: Start distrust-leaning, e.g., (4, 3), (12, 5)
+Choose coordinates that reflect initial positioning:
+- **Y-leaning**: Start with higher y, e.g., (3, 4), (5, 12)
+- **X-leaning**: Start with higher x, e.g., (4, 3), (12, 5)
 - **Neutral**: Near-balanced like (20, 21)
 
 ### Cost Efficiency
@@ -175,11 +190,11 @@ Choose coordinates that reflect initial sentiment:
 ### Common Pythagorean Triples (Reference)
 These have integer hypotenuse, making costs exact:
 ```
-(3, 4, 5)    - Minimal: 5 TENBIN
-(5, 12, 13)  - Standard: 13 TENBIN
-(8, 15, 17)  - Medium: 17 TENBIN
-(7, 24, 25)  - Large trust: 25 TENBIN
-(20, 21, 29) - Balanced: 29 TENBIN
+(3, 4, 5)    - Minimal: 5 TBD
+(5, 12, 13)  - Standard: 13 TBD
+(8, 15, 17)  - Medium: 17 TBD
+(7, 24, 25)  - High y-score: 25 TBD
+(20, 21, 29) - Balanced: 29 TBD
 ```
 
 ## Mathematical Limits
@@ -189,7 +204,8 @@ These have integer hypotenuse, making costs exact:
 | MAX_COORDINATE_VALUE | 1,000,000,000 | Max x or y value |
 | MAX_HYPOTENUSE | 1,500,000,000 | Max sqrt(x² + y²) |
 | MINIMUM_VOTES | 7 | Min x + y for creation |
-| PROTOCOL_FEE_BASIS_POINTS | 100 | 1% fee on transactions |
+| MAX_PROTOCOL_FEE_BASIS_POINTS | 100 | Maximum 1% fee on transactions |
+| protocolFeeBasisPoints | 0-100 | Current fee (configurable, default 100) |
 | DEFAULT_SLIPPAGE_BASIS_POINTS | 250 | 2.5% default slippage |
 
 ## Contract Functions Reference
@@ -199,21 +215,21 @@ These have integer hypotenuse, making costs exact:
 // Check if coordinate is valid
 function isValidCoordinate(uint256 x, uint256 y) returns (bool)
 
-// Calculate trust score (returns WAD - 18 decimals)
-function calculateTrustScore(uint256 x, uint256 y) returns (uint256)
+// Calculate score (returns WAD - 18 decimals)
+function calculateScore(uint256 x, uint256 y) returns (uint256)
 
 // Get market state
 function getMarketState(uint256 platformId) returns (
     uint256 x,
     uint256 y, 
-    uint256 trustScore,
+    uint256 score,
     uint256 totalVotes
 )
 
 // Get user holdings for yield
 function holdings(uint256 platformId, address user) returns (
-    uint256 trustCost,
-    uint256 distrustCost,
+    uint256 yCost,
+    uint256 xCost,
     uint256 lastAccrual,
     uint256 unclaimedYield
 )
@@ -221,7 +237,7 @@ function holdings(uint256 platformId, address user) returns (
 
 ### Write Functions
 ```solidity
-// Apply for market (10 TENBIN fee)
+// Apply for market (10 TBD fee)
 function applyForMarket(uint256 platformId)
 
 // Vote on market

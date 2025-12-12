@@ -1,7 +1,7 @@
 {
   "name": "pmm-smart-contract",
   "version": "2.0.0",
-  "description": "Pythagorean Market Maker - Decentralized reputation system with TENBIN token",
+  "description": "Pythagorean Market Maker - Decentralized reputation system with TBD token",
   "main": "index.js",
   "scripts": {
     "compile": "hardhat compile",

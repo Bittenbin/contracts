@@ -1,7 +1,7 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
-describe("TENBIN Token", function () {
+describe("Tenbin Dollar (TBD) Token", function () {
   let owner, alice, bob, carol;
   let tenbin;
 
@@ -16,10 +16,15 @@ describe("TENBIN Token", function () {
     expect(await tenbin.decimals()).to.equal(6);
   });
 
-  it("Should mint 1,000,000 TENBIN to owner at deployment", async function () {
-    const initialSupply = ethers.parseUnits("1000000", 6);
+  it("Should mint 11,110,000 TBD to owner at deployment", async function () {
+    const initialSupply = ethers.parseUnits("11110000", 6);
     expect(await tenbin.totalSupply()).to.equal(initialSupply);
     expect(await tenbin.balanceOf(owner.address)).to.equal(initialSupply);
+  });
+
+  it("Should set name and symbol correctly", async function () {
+    expect(await tenbin.name()).to.equal("Tenbin Dollar");
+    expect(await tenbin.symbol()).to.equal("TBD");
   });
 
   it("Owner is default minter and burner", async function () {

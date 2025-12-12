@@ -21,20 +21,20 @@ interface IMintableERC20 {
  * @dev Upgradeable implementation using UUPS proxy pattern with OpenZeppelin contracts
  * 
  * Core Mechanics:
- * - Markets exist at (x, y) coordinates where x = distrust votes, y = trust votes
- * - Cost = sqrt(x² + y²) in TENBIN tokens (hypotenuse-based pricing)
+ * - Markets exist at (x, y) coordinates representing vote positions
+ * - Cost = sqrt(x² + y²) in payment tokens (hypotenuse-based pricing)
  * - Each voter's contributions are tracked individually for fair selling
  * - Coordinates are globally unique across all markets
  * 
  * Fee Structure:
  * - Protocol fee: 100 basis points (1%) on all buy/sell transactions
  * - Fees accumulate in contract and can be distributed 50/50 to recipients
- * - Application fee: 10 TENBIN flat fee for market applications
+ * - Application fee: 10 tokens flat fee for market applications
  * 
  * Yield System:
- * - Annual yield rate = K / sqrt(totalMarkets) where K ≈ 1.329
+ * - Annual yield rate = K / sqrt(totalMarkets) where K ≈ 0.752
  * - Yield accrues on cost basis (amount paid for votes)
- * - PMM must be set as TENBIN minter for yield claiming
+ * - PMM must be set as token minter for yield claiming
  * 
  * MEV Protection:
  * - Default 2.5% slippage tolerance on all trades
@@ -50,15 +50,18 @@ interface IMintableERC20 {
 contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgradeable, PausableUpgradeable, ReentrancyGuardUpgradeable {
     
     // Constants
-    uint256 public constant PROTOCOL_FEE_BASIS_POINTS = 100;
+    uint256 public constant MAX_PROTOCOL_FEE_BASIS_POINTS = 100; // Maximum 1%
     uint256 public constant BASIS_POINTS_DENOMINATOR = 10000;
+    
+    // Configurable fee (0-100 basis points, default 100 = 1%)
+    uint256 public protocolFeeBasisPoints;
     uint256 public constant MINIMUM_VOTES = 7;
     uint256 public constant MAX_COORDINATE_VALUE = 1e9;
     uint256 public constant MAX_HYPOTENUSE = 1.5e9;
     uint256 public constant DEFAULT_SLIPPAGE_BASIS_POINTS = 250;
     uint256 public constant SECONDS_PER_YEAR = 365 days;
-    // K = 0.75 * sqrt(pi) in WAD (1e18)
-    uint256 private constant K_WAD = 1329340388179137000; // ~1.329340388179137e18
+    // K = 4 / (3 * sqrt(pi)) in WAD (1e18)
+    uint256 private constant K_WAD = 752252753838666400; // ~0.7522527538386664e18
     
     // Milestone thresholds
     uint256 public constant MILESTONE_1 = 100;
@@ -95,8 +98,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     }
     
     struct VoterPosition {
-        uint256 trustVotes;
-        uint256 distrustVotes;
+        uint256 yVotes;
+        uint256 xVotes;
         bool exists;
     }
     
@@ -109,8 +112,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
 
     // Holding cost basis and yield accrual per platform per user
     struct HoldingCosts {
-        uint256 trustCost;       // in payment token units
-        uint256 distrustCost;    // in payment token units
+        uint256 yCost;           // in payment token units
+        uint256 xCost;           // in payment token units
         uint256 lastAccrual;     // timestamp of last accrual update
         uint256 unclaimedYield;  // accumulated yield in payment token units
     }
@@ -139,14 +142,16 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     event VoterPositionUpdate(
         uint256 indexed platformId,
         address indexed voter,
-        uint256 trustVotes,
-        uint256 distrustVotes,
+        uint256 yVotes,
+        uint256 xVotes,
         uint256 hypotenuse
     );
     
     event ProtocolFeesWithdrawn(address indexed to, uint256 amount);
     
     event FeeRecipientsUpdated(address indexed ownerRecipient, address indexed protocolRecipient);
+    
+    event ProtocolFeeUpdated(uint256 oldFeeBasisPoints, uint256 newFeeBasisPoints, address indexed updatedBy);
     
     event ProtocolFeesDistributed(
         address indexed ownerRecipient,
@@ -163,8 +168,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         uint256 fromY,
         uint256 toX,
         uint256 toY,
-        uint256 trustDelta,
-        uint256 distrustDelta
+        uint256 yDelta,
+        uint256 xDelta
     );
     
     event SlippageProtectionApplied(
@@ -265,6 +270,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     error MarketApplicationExists();
     error MarketApplicationNotFound();
     error MintingNotSupported();
+    error InvalidProtocolFee();
     
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -273,7 +279,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     
     /**
      * @dev Initializes the contract
-     * @param _paymentToken Address of the ERC20 token used for payments (TENBIN)
+     * @param _paymentToken Address of the ERC20 token used for payments (TBD)
      */
     function initialize(
         address _paymentToken
@@ -293,6 +299,9 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         protocolFeeRecipient = 0xb322A547De3308C2426aEa700c8176574E57eEe6;
         
         paymentTokenDecimals = 10 ** IERC20Metadata(_paymentToken).decimals();
+        
+        // Initialize protocol fee to default 1% (100 basis points)
+        protocolFeeBasisPoints = MAX_PROTOCOL_FEE_BASIS_POINTS;
     }
 
     // ============================================================
@@ -301,8 +310,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
 
     /**
      * @notice Get the current annual yield rate in WAD format (1e18 = 100%)
-     * @dev Rate = K / sqrt(totalMarkets) where K = 0.75 * sqrt(π) ≈ 1.329
-     * @return Annual yield rate scaled by 1e18 (e.g., 1.329e18 = 132.9% APY)
+     * @dev Rate = K / sqrt(totalMarkets) where K = 4 / (3 * sqrt(π)) ≈ 0.752
+     * @return Annual yield rate scaled by 1e18 (e.g., 0.752e18 = 75.2% APY)
      */
     function currentAnnualYieldWad() public view returns (uint256) {
         if (totalMarkets == 0) {
@@ -329,7 +338,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         if (block.timestamp <= last) {
             return;
         }
-        uint256 base = h.trustCost + h.distrustCost; // token units
+        uint256 base = h.yCost + h.xCost; // token units
         if (base == 0) {
             h.lastAccrual = block.timestamp;
             return;
@@ -348,7 +357,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
 
     /**
      * @notice Claim accumulated yield rewards for a specific platform
-     * @dev Mints TENBIN tokens to caller. PMM must be set as TENBIN minter.
+     * @dev Mints tokens to caller. PMM must be set as token minter.
      * @param platformId The platform ID to claim yield from
      */
     function claimYield(uint256 platformId) external nonReentrant whenNotPaused {
@@ -359,7 +368,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
             return;
         }
         h.unclaimedYield = 0;
-        // Mint reward tokens to user (PMM must be set as minter on TENBIN)
+        // Mint reward tokens to user (PMM must be set as token minter)
         try IMintableERC20(address(paymentToken)).mint(msg.sender, amount) {
         } catch {
             revert MintingNotSupported();
@@ -369,8 +378,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     /**
      * @dev Creates a new market for a platform ID with initial votes
      * @param platformId Unique identifier for the platform entity
-     * @param initialX Initial distrust votes
-     * @param initialY Initial trust votes
+     * @param initialX Initial x-axis votes
+     * @param initialY Initial y-axis votes
      */
     function createMarket(
         uint256 platformId,
@@ -384,8 +393,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     /**
      * @dev Creates a new market with custom slippage tolerance
      * @param platformId Unique identifier for the platform entity
-     * @param initialX Initial distrust votes
-     * @param initialY Initial trust votes
+     * @param initialX Initial x-axis votes
+     * @param initialY Initial y-axis votes
      * @param slippageBasisPoints Maximum acceptable slippage in basis points
      */
     function createMarketWithSlippage(
@@ -444,7 +453,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         }
         uint256 initialHypotenuseScaled = _computeHypotenuseScaled(initialX, initialY);
         uint256 totalPaymentInTokenUnits = _validatePaymentAmount(initialHypotenuseScaled);
-        uint256 protocolFee = (totalPaymentInTokenUnits * PROTOCOL_FEE_BASIS_POINTS) / BASIS_POINTS_DENOMINATOR;
+        uint256 protocolFee = (totalPaymentInTokenUnits * protocolFeeBasisPoints) / BASIS_POINTS_DENOMINATOR;
         uint256 totalPayment = totalPaymentInTokenUnits + protocolFee;
         
         uint256 maxAcceptablePayment = totalPayment + (totalPayment * slippageBasisPoints) / BASIS_POINTS_DENOMINATOR;
@@ -476,26 +485,26 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         totalMarkets += 1;
         
         voterPositions[platformId][msg.sender] = VoterPosition({
-            trustVotes: initialY,
-            distrustVotes: initialX,
+            yVotes: initialY,
+            xVotes: initialX,
             exists: true
         });
         
         // Track cost basis for yield accrual (same decomposition as in voting)
-        // trustCost = cost of going from (0,0) to (0, initialY)
-        // distrustCost = cost of going from (0, initialY) to (initialX, initialY)
-        uint256 trustCostPart = _computeHypotenuseScaled(0, initialY);
-        uint256 distrustCostPart = initialHypotenuseScaled - trustCostPart;
+        // yCost = cost of going from (0,0) to (0, initialY)
+        // xCost = cost of going from (0, initialY) to (initialX, initialY)
+        uint256 yCostPart = _computeHypotenuseScaled(0, initialY);
+        uint256 xCostPart = initialHypotenuseScaled - yCostPart;
         holdings[platformId][msg.sender] = HoldingCosts({
-            trustCost: trustCostPart,
-            distrustCost: distrustCostPart,
+            yCost: yCostPart,
+            xCost: xCostPart,
             lastAccrual: block.timestamp,
             unclaimedYield: 0
         });
         
         emit MarketCreated(platformId, msg.sender, initialX, initialY, totalVotes);
         // For event readability, include integer hypotenuse (floor) in the event payload
-        emit VoterPositionUpdate(platformId, msg.sender, initialY, initialX, Math.sqrt(sumSquares));
+        emit VoterPositionUpdate(platformId, msg.sender, initialY, initialX, Math.sqrt(sumSquares)); // yVotes, xVotes
         emit VoterFirstParticipation(platformId, msg.sender, block.timestamp);
         emit LiquidityAdded(platformId, totalPayment, paymentToken.balanceOf(address(this)));
         
@@ -563,8 +572,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     /**
      * @dev Vote on an existing market by adjusting your position
      * @param platformId The platform ID to vote on
-     * @param newX New distrust votes (for the entire market)
-     * @param newY New trust votes (for the entire market)
+     * @param newX New x-axis votes (for the entire market)
+     * @param newY New y-axis votes (for the entire market)
      */
     function voteOnMarket(
         uint256 platformId,
@@ -577,8 +586,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     /**
      * @dev Vote on market with custom slippage tolerance
      * @param platformId The platform ID to vote on
-     * @param newX New distrust votes (for the entire market)
-     * @param newY New trust votes (for the entire market)
+     * @param newX New x-axis votes (for the entire market)
+     * @param newY New y-axis votes (for the entire market)
      * @param slippageBasisPoints Maximum acceptable slippage in basis points
      */
     function voteOnMarketWithSlippage(
@@ -637,8 +646,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         
         bool isFirstTimeVoter = !voterPos.exists;
         
-        int256 trustDelta = int256(newY) - int256(current.y);
-        int256 distrustDelta = int256(newX) - int256(current.x);
+        int256 yDelta = int256(newY) - int256(current.y);
+        int256 xDelta = int256(newX) - int256(current.x);
         
         uint256 currentXSquared = _safeMul(current.x, current.x);
         uint256 currentYSquared = _safeMul(current.y, current.y);
@@ -668,52 +677,52 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
             protocolFee = _processBuyVotesWithSlippage(
                 platformId,
                 uint256(hypotenuseChangeScaled),
-                trustDelta,
-                distrustDelta,
+                yDelta,
+                xDelta,
                 voterPos,
                 slippageBasisPoints
             );
             totalVoteVolume[platformId] += uint256(hypotenuseChangeScaled);
-            // Update cost basis by decomposing cost into trust then distrust
-            uint256 trustBuy = trustDelta > 0 ? uint256(trustDelta) : 0;
-            uint256 distrustBuy = distrustDelta > 0 ? uint256(distrustDelta) : 0;
-            if (trustBuy > 0) {
-                uint256 trustPart = _computeHypotenuseScaled(current.x, current.y + trustBuy) - _computeHypotenuseScaled(current.x, current.y);
-                holdings[platformId][msg.sender].trustCost += trustPart;
+            // Update cost basis by decomposing cost into y then x
+            uint256 yBuy = yDelta > 0 ? uint256(yDelta) : 0;
+            uint256 xBuy = xDelta > 0 ? uint256(xDelta) : 0;
+            if (yBuy > 0) {
+                uint256 yPart = _computeHypotenuseScaled(current.x, current.y + yBuy) - _computeHypotenuseScaled(current.x, current.y);
+                holdings[platformId][msg.sender].yCost += yPart;
             }
-            if (distrustBuy > 0) {
-                uint256 distrustPart = _computeHypotenuseScaled(current.x + distrustBuy, current.y + trustBuy) - _computeHypotenuseScaled(current.x, current.y + trustBuy);
-                holdings[platformId][msg.sender].distrustCost += distrustPart;
+            if (xBuy > 0) {
+                uint256 xPart = _computeHypotenuseScaled(current.x + xBuy, current.y + yBuy) - _computeHypotenuseScaled(current.x, current.y + yBuy);
+                holdings[platformId][msg.sender].xCost += xPart;
             }
             holdings[platformId][msg.sender].lastAccrual = block.timestamp;
         } else if (hypotenuseChangeScaled < 0) {
             // Before sell, compute previous holdings for pro-rata reduction
-            uint256 prevTrust = voterPos.trustVotes;
-            uint256 prevDistrust = voterPos.distrustVotes;
-            uint256 trustSell = trustDelta < 0 ? uint256(-trustDelta) : 0;
-            uint256 distrustSell = distrustDelta < 0 ? uint256(-distrustDelta) : 0;
+            uint256 prevY = voterPos.yVotes;
+            uint256 prevX = voterPos.xVotes;
+            uint256 ySell = yDelta < 0 ? uint256(-yDelta) : 0;
+            uint256 xSell = xDelta < 0 ? uint256(-xDelta) : 0;
 
             protocolFee = _processSellVotesWithSlippage(
                 platformId,
                 uint256(-hypotenuseChangeScaled),
-                trustDelta,
-                distrustDelta,
+                yDelta,
+                xDelta,
                 voterPos,
                 slippageBasisPoints
             );
             // Pro-rata reduce cost basis for sold units
-            if (trustSell > 0 && prevTrust > 0) {
+            if (ySell > 0 && prevY > 0) {
                 HoldingCosts storage h = holdings[platformId][msg.sender];
-                h.trustCost = h.trustCost * (prevTrust - trustSell) / prevTrust;
+                h.yCost = h.yCost * (prevY - ySell) / prevY;
                 h.lastAccrual = block.timestamp;
             }
-            if (distrustSell > 0 && prevDistrust > 0) {
+            if (xSell > 0 && prevX > 0) {
                 HoldingCosts storage h2 = holdings[platformId][msg.sender];
-                h2.distrustCost = h2.distrustCost * (prevDistrust - distrustSell) / prevDistrust;
+                h2.xCost = h2.xCost * (prevX - xSell) / prevX;
                 h2.lastAccrual = block.timestamp;
             }
         } else {
-            _processRebalance(trustDelta, distrustDelta, voterPos);
+            _processRebalance(yDelta, xDelta, voterPos);
             emit MarketRebalanced(
                 platformId, 
                 msg.sender, 
@@ -721,8 +730,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
                 current.y, 
                 newX, 
                 newY, 
-                trustDelta > 0 ? uint256(trustDelta) : 0,
-                distrustDelta > 0 ? uint256(distrustDelta) : 0
+                yDelta > 0 ? uint256(yDelta) : 0,
+                xDelta > 0 ? uint256(xDelta) : 0
             );
             // For rebalancing, do not change cost basis; only accrual was updated above
         }
@@ -749,8 +758,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         emit VoterPositionUpdate(
             platformId, 
             msg.sender, 
-            voterPos.trustVotes, 
-            voterPos.distrustVotes, 
+            voterPos.yVotes, 
+            voterPos.xVotes, 
             newHypotenuseInt
         );
         
@@ -769,13 +778,13 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     function _processBuyVotesWithSlippage(
         uint256 platformId,
         uint256 hypotenuseIncrease,
-        int256 trustDelta,
-        int256 distrustDelta,
+        int256 yDelta,
+        int256 xDelta,
         VoterPosition storage voterPos,
         uint256 slippageBasisPoints
     ) internal returns (uint256 protocolFee) {
         uint256 payment = _validatePaymentAmount(hypotenuseIncrease);
-        protocolFee = (payment * PROTOCOL_FEE_BASIS_POINTS) / BASIS_POINTS_DENOMINATOR;
+        protocolFee = (payment * protocolFeeBasisPoints) / BASIS_POINTS_DENOMINATOR;
         uint256 totalPayment = payment + protocolFee;
         
         uint256 maxAcceptablePayment = totalPayment + (totalPayment * slippageBasisPoints) / BASIS_POINTS_DENOMINATOR;
@@ -804,24 +813,24 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         
         accumulatedProtocolFees += protocolFee;
         
-        if (trustDelta > 0) {
-            voterPos.trustVotes += uint256(trustDelta);
-        } else if (trustDelta < 0) {
-            uint256 reductionAmount = uint256(-trustDelta);
-            if (voterPos.trustVotes < reductionAmount) {
+        if (yDelta > 0) {
+            voterPos.yVotes += uint256(yDelta);
+        } else if (yDelta < 0) {
+            uint256 reductionAmount = uint256(-yDelta);
+            if (voterPos.yVotes < reductionAmount) {
                 revert InsufficientVotesToSell();
             }
-            voterPos.trustVotes -= reductionAmount;
+            voterPos.yVotes -= reductionAmount;
         }
         
-        if (distrustDelta > 0) {
-            voterPos.distrustVotes += uint256(distrustDelta);
-        } else if (distrustDelta < 0) {
-            uint256 reductionAmount = uint256(-distrustDelta);
-            if (voterPos.distrustVotes < reductionAmount) {
+        if (xDelta > 0) {
+            voterPos.xVotes += uint256(xDelta);
+        } else if (xDelta < 0) {
+            uint256 reductionAmount = uint256(-xDelta);
+            if (voterPos.xVotes < reductionAmount) {
                 revert InsufficientVotesToSell();
             }
-            voterPos.distrustVotes -= reductionAmount;
+            voterPos.xVotes -= reductionAmount;
         }
         
         emit LiquidityAdded(platformId, totalPayment, paymentToken.balanceOf(address(this)));
@@ -833,33 +842,33 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     function _processSellVotesWithSlippage(
         uint256 platformId,
         uint256 hypotenuseDecrease,
-        int256 trustDelta,
-        int256 distrustDelta,
+        int256 yDelta,
+        int256 xDelta,
         VoterPosition storage voterPos,
         uint256 slippageBasisPoints
     ) internal returns (uint256 protocolFee) {
-        if (trustDelta < 0) {
-            uint256 sellAmount = uint256(-trustDelta);
-            if (voterPos.trustVotes < sellAmount) {
+        if (yDelta < 0) {
+            uint256 sellAmount = uint256(-yDelta);
+            if (voterPos.yVotes < sellAmount) {
                 revert InsufficientVotesToSell();
             }
-            voterPos.trustVotes -= sellAmount;
-        } else if (trustDelta > 0) {
-            voterPos.trustVotes += uint256(trustDelta);
+            voterPos.yVotes -= sellAmount;
+        } else if (yDelta > 0) {
+            voterPos.yVotes += uint256(yDelta);
         }
         
-        if (distrustDelta < 0) {
-            uint256 sellAmount = uint256(-distrustDelta);
-            if (voterPos.distrustVotes < sellAmount) {
+        if (xDelta < 0) {
+            uint256 sellAmount = uint256(-xDelta);
+            if (voterPos.xVotes < sellAmount) {
                 revert InsufficientVotesToSell();
             }
-            voterPos.distrustVotes -= sellAmount;
-        } else if (distrustDelta > 0) {
-            voterPos.distrustVotes += uint256(distrustDelta);
+            voterPos.xVotes -= sellAmount;
+        } else if (xDelta > 0) {
+            voterPos.xVotes += uint256(xDelta);
         }
         
         uint256 refundAmount = _validatePaymentAmount(hypotenuseDecrease);
-        protocolFee = (refundAmount * PROTOCOL_FEE_BASIS_POINTS) / BASIS_POINTS_DENOMINATOR;
+        protocolFee = (refundAmount * protocolFeeBasisPoints) / BASIS_POINTS_DENOMINATOR;
         uint256 netRefund = refundAmount - protocolFee;
         
         uint256 minAcceptableRefund = netRefund - (netRefund * slippageBasisPoints) / BASIS_POINTS_DENOMINATOR;
@@ -890,28 +899,28 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
      * @dev Process rebalancing (same hypotenuse)
      */
     function _processRebalance(
-        int256 trustDelta,
-        int256 distrustDelta,
+        int256 yDelta,
+        int256 xDelta,
         VoterPosition storage voterPos
     ) internal {
-        if (trustDelta != 0 || distrustDelta != 0) {
-            if (trustDelta < 0 && voterPos.trustVotes < uint256(-trustDelta)) {
+        if (yDelta != 0 || xDelta != 0) {
+            if (yDelta < 0 && voterPos.yVotes < uint256(-yDelta)) {
                 revert InsufficientVotesToSell();
             }
-            if (distrustDelta < 0 && voterPos.distrustVotes < uint256(-distrustDelta)) {
+            if (xDelta < 0 && voterPos.xVotes < uint256(-xDelta)) {
                 revert InsufficientVotesToSell();
             }
             
-            if (trustDelta > 0) {
-                voterPos.trustVotes += uint256(trustDelta);
-            } else if (trustDelta < 0) {
-                voterPos.trustVotes -= uint256(-trustDelta);
+            if (yDelta > 0) {
+                voterPos.yVotes += uint256(yDelta);
+            } else if (yDelta < 0) {
+                voterPos.yVotes -= uint256(-yDelta);
             }
             
-            if (distrustDelta > 0) {
-                voterPos.distrustVotes += uint256(distrustDelta);
-            } else if (distrustDelta < 0) {
-                voterPos.distrustVotes -= uint256(-distrustDelta);
+            if (xDelta > 0) {
+                voterPos.xVotes += uint256(xDelta);
+            } else if (xDelta < 0) {
+                voterPos.xVotes -= uint256(-xDelta);
             }
         }
     }
@@ -920,28 +929,28 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
      * @dev Get voter's position in a market
      * @param platformId The platform ID
      * @param voter The voter's address
-     * @return trustVotes Number of trust votes owned
-     * @return distrustVotes Number of distrust votes owned
+     * @return yVotes Number of y-axis votes owned
+     * @return xVotes Number of x-axis votes owned
      * @return exists Whether voter has a position
      */
     function getVoterPosition(
         uint256 platformId,
         address voter
     ) external view returns (
-        uint256 trustVotes,
-        uint256 distrustVotes,
+        uint256 yVotes,
+        uint256 xVotes,
         bool exists
     ) {
         VoterPosition memory pos = voterPositions[platformId][voter];
-        return (pos.trustVotes, pos.distrustVotes, pos.exists);
+        return (pos.yVotes, pos.xVotes, pos.exists);
     }
     
     /**
-     * @dev Get market state and trust score
+     * @dev Get market state and score
      * @param platformId The platform ID to query
-     * @return x Distrust votes
-     * @return y Trust votes
-     * @return trustScore Trust score (0 to 1e18)
+     * @return x X-axis votes
+     * @return y Y-axis votes
+     * @return score Score (0 to 1e18), calculated as y²/(x²+y²)
      * @return totalVotes Total current votes
      */
     function getMarketState(uint256 platformId) 
@@ -950,7 +959,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         returns (
             uint256 x,
             uint256 y,
-            uint256 trustScore,
+            uint256 score,
             uint256 totalVotes
         ) 
     {
@@ -962,7 +971,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         x = coord.x;
         y = coord.y;
         totalVotes = x + y;
-        trustScore = calculateTrustScore(x, y);
+        score = calculateScore(x, y);
     }
     
     /**
@@ -986,12 +995,14 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
      * @dev Get protocol fee percentage in basis points
      * @return feeBasisPoints The protocol fee in basis points
      * @return feePercentage The protocol fee as a percentage (for display)
+     * @return maxFeeBasisPoints The maximum allowed fee in basis points
      */
-    function getProtocolFeeInfo() external pure returns (
+    function getProtocolFeeInfo() external view returns (
         uint256 feeBasisPoints,
-        uint256 feePercentage
+        uint256 feePercentage,
+        uint256 maxFeeBasisPoints
     ) {
-        return (PROTOCOL_FEE_BASIS_POINTS, PROTOCOL_FEE_BASIS_POINTS / 100);
+        return (protocolFeeBasisPoints, protocolFeeBasisPoints / 100, MAX_PROTOCOL_FEE_BASIS_POINTS);
     }
     
     /**
@@ -1038,7 +1049,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         
         uint256 hypotenuseIncreaseScaled = newHypotenuseScaled - currentHypotenuseScaled;
         uint256 payment = _validatePaymentAmount(hypotenuseIncreaseScaled);
-        uint256 protocolFee = (payment * PROTOCOL_FEE_BASIS_POINTS) / BASIS_POINTS_DENOMINATOR;
+        uint256 protocolFee = (payment * protocolFeeBasisPoints) / BASIS_POINTS_DENOMINATOR;
         expectedPayment = payment + protocolFee;
         maxPaymentWithSlippage = expectedPayment + (expectedPayment * slippageBasisPoints) / BASIS_POINTS_DENOMINATOR;
     }
@@ -1075,7 +1086,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         
         uint256 hypotenuseDecreaseScaled = currentHypotenuseScaled - newHypotenuseScaled;
         uint256 refundAmount = _validatePaymentAmount(hypotenuseDecreaseScaled);
-        uint256 protocolFee = (refundAmount * PROTOCOL_FEE_BASIS_POINTS) / BASIS_POINTS_DENOMINATOR;
+        uint256 protocolFee = (refundAmount * protocolFeeBasisPoints) / BASIS_POINTS_DENOMINATOR;
         expectedRefund = refundAmount - protocolFee;
         minRefundWithSlippage = expectedRefund - (expectedRefund * slippageBasisPoints) / BASIS_POINTS_DENOMINATOR;
     }
@@ -1118,12 +1129,12 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     }
     
     /**
-     * @dev Calculate trust score for given coordinates
-     * @param x Distrust votes
-     * @param y Trust votes
-     * @return Trust score scaled by 1e18
+     * @dev Calculate score for given coordinates
+     * @param x X-axis votes
+     * @param y Y-axis votes
+     * @return Score scaled by 1e18, calculated as y²/(x²+y²)
      */
-    function calculateTrustScore(uint256 x, uint256 y) public pure returns (uint256) {
+    function calculateScore(uint256 x, uint256 y) public pure returns (uint256) {
         if (x == 0 && y == 0) {
             return 0;
         }
@@ -1246,6 +1257,28 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         protocolFeeRecipient = newProtocolRecipient;
         
         emit FeeRecipientsUpdated(newOwnerRecipient, newProtocolRecipient);
+    }
+    
+    /**
+     * @dev Update the protocol fee percentage
+     * @param newFeeBasisPoints New fee in basis points (0-100, where 100 = 1%)
+     * @notice Only callable by owner or protocol fee recipient
+     */
+    function setProtocolFee(uint256 newFeeBasisPoints) external {
+        // Only owner or protocol fee recipient can update the fee
+        if (msg.sender != owner() && msg.sender != protocolFeeRecipient) {
+            revert OwnableUnauthorizedAccount(msg.sender);
+        }
+        
+        // Fee must be between 0% and 1% (0-100 basis points)
+        if (newFeeBasisPoints > MAX_PROTOCOL_FEE_BASIS_POINTS) {
+            revert InvalidProtocolFee();
+        }
+        
+        uint256 oldFee = protocolFeeBasisPoints;
+        protocolFeeBasisPoints = newFeeBasisPoints;
+        
+        emit ProtocolFeeUpdated(oldFee, newFeeBasisPoints, msg.sender);
     }
     
     /**

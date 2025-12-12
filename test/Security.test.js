@@ -19,7 +19,7 @@ describe("Security and Exploit Prevention", function () {
   beforeEach(async function () {
     [owner, attacker, victim, alice, bob] = await ethers.getSigners();
 
-    // Deploy TENBIN token
+    // Deploy TBD token
     const TenbinToken = await ethers.getContractFactory("TenbinToken");
     tenbin = await TenbinToken.deploy(owner.address);
     await tenbin.waitForDeployment();
@@ -114,9 +114,9 @@ describe("Security and Exploit Prevention", function () {
       // Bob legitimately buys votes
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID, 5, 12);
       
-      let [bobTrust, bobDistrust] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
-      expect(bobTrust).to.equal(8); // 12 - 4
-      expect(bobDistrust).to.equal(2); // 5 - 3
+      let [bobY, bobX] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
+      expect(bobY).to.equal(8); // 12 - 4
+      expect(bobX).to.equal(2); // 5 - 3
       
       // Bob cannot claim more votes than delta
       // This is enforced by the contract - votes = delta from previous position
@@ -127,9 +127,9 @@ describe("Security and Exploit Prevention", function () {
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID, 5, 12);
       
       // Alice's original votes should remain unchanged
-      const [aliceTrust, aliceDistrust] = await pmm.getVoterPosition(PLATFORM_ID, alice.address);
-      expect(aliceTrust).to.equal(4);
-      expect(aliceDistrust).to.equal(3);
+      const [aliceY, aliceX] = await pmm.getVoterPosition(PLATFORM_ID, alice.address);
+      expect(aliceY).to.equal(4);
+      expect(aliceX).to.equal(3);
       
       // Bob moving the market doesn't steal Alice's votes
     });
@@ -139,13 +139,13 @@ describe("Security and Exploit Prevention", function () {
       
       // Bob buys votes
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID, 5, 12);
-      let [bobTrust1] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
+      let [bobY1] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
       
       // Bob votes again to same position - should not add votes
       await pmm.connect(bob).voteOnMarket(PLATFORM_ID, 5, 12);
-      let [bobTrust2] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
-      
-      expect(bobTrust2).to.equal(bobTrust1);
+      let [bobY2] = await pmm.getVoterPosition(PLATFORM_ID, bob.address);
+
+      expect(bobY2).to.equal(bobY1);
     });
   });
 
@@ -160,18 +160,18 @@ describe("Security and Exploit Prevention", function () {
       const balanceAfter = await tenbin.balanceOf(attacker.address);
       const cost = balanceBefore - balanceAfter;
       
-      // They have to pay 5.05 TENBIN - not free squatting
+      // They have to pay 5.05 TBD - not free squatting
       expect(cost).to.equal(5050000n);
     });
 
     it("Should prevent free coordinate reservation via application", async function () {
-      // Even application costs 10 TENBIN
+      // Even application costs 10 TBD
       const balanceBefore = await tenbin.balanceOf(attacker.address);
       
       await pmm.connect(attacker).applyForMarket(PLATFORM_ID);
       
       const balanceAfter = await tenbin.balanceOf(attacker.address);
-      expect(balanceBefore - balanceAfter).to.equal(10000000n); // 10 TENBIN
+      expect(balanceBefore - balanceAfter).to.equal(10000000n); // 10 TBD
     });
   });
 
@@ -194,7 +194,7 @@ describe("Security and Exploit Prevention", function () {
       expect(holdings.unclaimedYield).to.equal(0);
       
       // Cost basis is also reduced when selling
-      expect(holdings.trustCost + holdings.distrustCost).to.equal(0);
+      expect(holdings.yCost + holdings.xCost).to.equal(0);
     });
 
     it("Should prevent yield manipulation via market count gaming", async function () {
@@ -295,15 +295,15 @@ describe("Security and Exploit Prevention", function () {
     it("Should prevent underflow when selling", async function () {
       await pmm.connect(alice).createMarket(PLATFORM_ID, 5, 12);
       
-      // Alice owns 5 distrust, 12 trust
+      // Alice owns 5 x, 12 y
       // Try to move to position requiring selling more than owned
       await expect(pmm.connect(alice).voteOnMarket(PLATFORM_ID, 3, 4))
         .to.not.be.reverted; // Should work - she owns enough
       
-      // Now Alice has 3 distrust, 4 trust
-      // Try to sell more trust than she has (need to go below 0)
-      // Going to (3, 1) would require selling 3 trust, but she only has 4 - that works
-      // Going to (1, 4) would require selling 2 distrust, she has 3 - that works
+      // Now Alice has 3 x, 4 y
+      // Try to sell more y than she has (need to go below 0)
+      // Going to (3, 1) would require selling 3 y, but she only has 4 - that works
+      // Going to (1, 4) would require selling 2 x, she has 3 - that works
       // We need Bob to try to sell votes he doesn't have
       await expect(pmm.connect(bob).voteOnMarket(PLATFORM_ID, 2, 3))
         .to.be.revertedWithCustomError(pmm, "InsufficientVotesToSell");
@@ -313,21 +313,21 @@ describe("Security and Exploit Prevention", function () {
   describe("DoS Prevention", function () {
     it("Should handle gas-expensive operations gracefully", async function () {
       // Create market with moderately large coordinates (gas cost)
-      // (10000, 10001) costs ~14,142 TENBIN which alice can afford
+      // (10000, 10001) costs ~14,142 TBD which alice can afford
       // Note: x != y to avoid genesis line restriction
       await expect(pmm.connect(alice).createMarket(PLATFORM_ID, 10000, 10001))
         .to.not.be.reverted;
     });
 
     it("Should prevent griefing via excessive applications", async function () {
-      // Each application costs 10 TENBIN
+      // Each application costs 10 TBD
       // Attacker would lose money trying to grief
       for (let i = 0; i < 10; i++) {
         await pmm.connect(attacker).applyForMarket(i + 1);
       }
       
-      // Attacker spent 100 TENBIN
-      const spent = 10 * 10000000; // 100 TENBIN
+      // Attacker spent 100 TBD
+      const spent = 10 * 10000000; // 100 TBD
       expect(await pmm.accumulatedProtocolFees()).to.be.gte(spent);
     });
 
@@ -377,7 +377,7 @@ describe("Security and Exploit Prevention", function () {
       // Give limited approval
       await tenbin.connect(alice).approve(await pmm.getAddress(), ethers.parseUnits("1", 6));
       
-      // Try to create market costing 5.05 TENBIN
+      // Try to create market costing 5.05 TBD
       await expect(pmm.connect(alice).createMarket(PLATFORM_ID, 3, 4))
         .to.be.reverted; // Insufficient allowance
     });
@@ -390,7 +390,7 @@ describe("Security and Exploit Prevention", function () {
       const balanceAfter = await tenbin.balanceOf(alice.address);
       const spent = balanceBefore - balanceAfter;
       
-      // Should spend exactly 5.05 TENBIN, not more
+      // Should spend exactly 5.05 TBD, not more
       expect(spent).to.equal(5050000n);
     });
   });
@@ -489,7 +489,7 @@ describe("Security and Exploit Prevention", function () {
   });
 });
 
-describe("TENBIN Token Security", function () {
+describe("TBD Token Security", function () {
   let tenbin;
   let owner;
   let attacker;
