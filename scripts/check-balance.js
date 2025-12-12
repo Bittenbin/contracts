@@ -12,7 +12,7 @@ async function main() {
   const ethBalance = await ethers.provider.getBalance(signer.address);
   console.log(`\nETH Balance: ${ethers.formatEther(ethBalance)} ETH`);
   
-  // Try to get TENBIN balance if deployment exists
+  // Try to get TBD balance if deployment exists
   try {
     // Look for deployment files with new naming pattern
     const deploymentsDir = path.join(__dirname, "../deployments");
@@ -36,7 +36,7 @@ async function main() {
       }
       
       const tenbinBalance = await tenbin.balanceOf(signer.address);
-      console.log(`TENBIN Balance: ${ethers.formatUnits(tenbinBalance, 6)} TENBIN`);
+      console.log(`TBD Balance: ${ethers.formatUnits(tenbinBalance, 6)} TBD`);
       
       // Get PMM contract
       const pmm = await ethers.getContractAt("PythagoreanMarketMaker", deployment.contracts.PythagoreanMarketMaker);
@@ -49,7 +49,7 @@ async function main() {
       const feeInfo = await pmm.getFeeDistributionInfo();
       console.log("Owner Fee Recipient:", feeInfo.ownerRecipient);
       console.log("Protocol Fee Recipient:", feeInfo.protocolRecipient);
-      console.log("Accumulated Fees:", ethers.formatUnits(feeInfo.pendingFees, 6), "TENBIN");
+      console.log("Accumulated Fees:", ethers.formatUnits(feeInfo.pendingFees, 6), "TBD");
       
       // Show total markets and yield rate
       try {

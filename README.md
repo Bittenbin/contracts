@@ -39,16 +39,16 @@ PMM creates reputation markets where:
 - No expiration - markets exist forever
 - Gas-efficient design for millions of users
 
-## TENBIN Token
+## Tenbin Dollar (TBD) Token
 
-PMM uses **TENBIN** as its native payment and reward token:
+PMM uses **Tenbin Dollar (TBD)** as its native payment and reward token:
 
-- **Name/Symbol**: TENBIN (`TENBIN`)
+- **Name/Symbol**: Tenbin Dollar (`TBD`)
 - **Decimals**: 6
-- **Initial Supply**: 1,000,000 TENBIN minted to deployer
+- **Initial Supply**: 1,000,000 TBD minted to deployer
 - **Roles**:
-  - **Minter**: Can mint unlimited TENBIN (set to PMM contract after deployment)
-  - **Burner**: Can burn TENBIN from any address (initially owner)
+  - **Minter**: Can mint unlimited TBD (set to PMM contract after deployment)
+  - **Burner**: Can burn TBD from any address (initially owner)
 - **No hard cap**: Minting is unlimited for yield distribution
 
 ### Deployment Environment Variables

@@ -135,7 +135,7 @@ async function main() {
     console.log("TENBIN:", TENBIN_ADDRESS);
     console.log("PMM:", pmmAddress);
     
-    console.log("\n⚠️  IMPORTANT: Set PMM as TENBIN minter!");
+    console.log("\n⚠️  IMPORTANT: Set PMM as TBD minter!");
     console.log("Run this command with a script or on Basescan:");
     console.log(`   TenbinToken.setMinter("${pmmAddress}")`);
     

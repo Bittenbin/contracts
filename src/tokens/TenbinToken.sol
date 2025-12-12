@@ -5,13 +5,13 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
- * @title TENBIN Token
+ * @title Tenbin Dollar Token
  * @author clwsqc and rtedwardchen
  * @notice Native ERC20 token used by Pythagorean Market Maker as payment and reward token
  * @dev 6 decimals for precise financial calculations. Supports role-based minting and burning.
  * 
  * Key Features:
- * - Initial supply: 1,000,000 TENBIN minted to deployer
+ * - Initial supply: 1,000,000 TBD minted to deployer
  * - Separate minter and burner roles (independent from owner)
  * - No hard cap: minting is unlimited for yield distribution
  * - PMM contract should be set as minter to enable yield claims
@@ -30,7 +30,7 @@ contract TenbinToken is ERC20, Ownable {
     error NotMinter();
     error NotBurner();
 
-    constructor(address initialOwner) ERC20("TENBIN", "TENBIN") Ownable(initialOwner) {
+    constructor(address initialOwner) ERC20("Tenbin Dollar", "TBD") Ownable(initialOwner) {
         // Mint initial supply to owner
         _mint(initialOwner, INITIAL_SUPPLY);
         // Initialize roles to owner

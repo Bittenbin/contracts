@@ -85,7 +85,7 @@ async function main() {
   console.log("PMM (Proxy):", proxyAddress);
   console.log("PMM (Implementation):", PMM_IMPLEMENTATION);
   
-  console.log("\n⚠️  NEXT: Set PMM as TENBIN minter!");
+  console.log("\n⚠️  NEXT: Set PMM as TBD minter!");
   console.log(`   Call TenbinToken.setMinter("${proxyAddress}")`);
   
   console.log("\n🔗 View on Basescan:");

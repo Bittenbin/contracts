@@ -7,7 +7,7 @@ Complete guide for interacting with PMM on Base Sepolia
 
 Contract Addresses (Base Sepolia):
 - PythagoreanMarketMaker: 0x8F6a072098B0440690f81246538CF761BE201C7F
-- TENBIN Token: 0x5399156BAab6A6e2C51D2239B23366dE66A01E5b
+- Tenbin Dollar (TBD) Token: 0x5399156BAab6A6e2C51D2239B23366dE66A01E5b
 - Owner Fee Recipient: 0x2dfc776B09234f617DFc38Cb8De1BB2B0B7C4E5B
 - Protocol Fee Recipient: 0xb322A547De3308C2426aEa700c8176574E57eEe6
 
@@ -18,7 +18,7 @@ Usage Examples:
   # Check if market exists (no private key needed)
   python pmm_cookbook_testnet.py check-market 1234567890
   
-  # Get TENBIN information
+  # Get TBD information
   python pmm_cookbook_testnet.py get-token-info
   
   # Check contract health
@@ -41,7 +41,7 @@ CHAIN_ID = 84532
 
 # Base Sepolia Deployed Addresses (November 26, 2025)
 PMM_ADDRESS = "0x8F6a072098B0440690f81246538CF761BE201C7F"
-TENBIN_ADDRESS = "0x5399156BAab6A6e2C51D2239B23366dE66A01E5b"
+TOKEN_ADDRESS = "0x5399156BAab6A6e2C51D2239B23366dE66A01E5b"
 
 PMM_ABI = [
     # Market Creation
@@ -407,7 +407,7 @@ PMM_ABI = [
     },
 ]
 
-TENBIN_ABI = [
+TOKEN_ABI = [
     {
         "inputs": [
             {"name": "spender", "type": "address"},
@@ -608,7 +608,7 @@ class PMM_Cookbook:
 
         # Initialize contracts
         self.pmm = self.w3.eth.contract(address=PMM_ADDRESS, abi=PMM_ABI)
-        self.tenbin = self.w3.eth.contract(address=TENBIN_ADDRESS, abi=TENBIN_ABI)
+        self.tenbin = self.w3.eth.contract(address=TOKEN_ADDRESS, abi=TOKEN_ABI)
 
         self.account = None
         if private_key:
@@ -620,9 +620,15 @@ class PMM_Cookbook:
         try:
             self.token_decimals = self.tenbin.functions.decimals().call()
         except:
-            self.token_decimals = 6  # Default for TENBIN
+            self.token_decimals = 6  # Default for TBD
 
         self.token_multiplier = 10 ** self.token_decimals
+
+        # Cache token symbol for display formatting (fallback to TBD)
+        try:
+            self.token_symbol = self.tenbin.functions.symbol().call()
+        except Exception:
+            self.token_symbol = "TBD"
 
         # Try to get contract constants
         try:
@@ -647,7 +653,7 @@ class PMM_Cookbook:
 
     def format_token(self, amount: int) -> str:
         """Format token amount for display."""
-        return f"{amount / self.token_multiplier:,.6f} TENBIN"
+        return f"{amount / self.token_multiplier:,.6f} {self.token_symbol}"
 
     def calculate_hypotenuse_cost(
         self, current_x: int, current_y: int, new_x: int, new_y: int
@@ -692,7 +698,7 @@ class PMM_Cookbook:
                 "action": "rebalance",
                 "hypotenuse_change": 0,
                 "cost": 0,
-                "cost_formatted": "0.000000 TENBIN",
+                "cost_formatted": "0.000000 TBD",
             }
 
     # ==================== Read Functions ====================
@@ -819,7 +825,7 @@ class PMM_Cookbook:
         return result
 
     def check_balance(self, address: str) -> Dict:
-        """Check ETH and TENBIN balances."""
+        """Check ETH and token balances."""
         eth_balance = self.w3.eth.get_balance(address)
 
         try:
@@ -836,7 +842,7 @@ class PMM_Cookbook:
         }
 
     def check_allowance(self, owner_address: str) -> Dict:
-        """Check TENBIN allowance for PMM contract."""
+        """Check token allowance for PMM contract."""
         try:
             allowance = self.tenbin.functions.allowance(owner_address, PMM_ADDRESS).call()
         except:
@@ -933,7 +939,7 @@ class PMM_Cookbook:
             return {"error": str(e), "health_status": "unknown"}
 
     def get_token_info(self) -> Dict:
-        """Get information about the TENBIN token."""
+        """Get information about the token."""
         try:
             name = self.tenbin.functions.name().call()
             symbol = self.tenbin.functions.symbol().call()
@@ -947,7 +953,7 @@ class PMM_Cookbook:
 
             return {
                 "network": "Base Sepolia Testnet",
-                "address": TENBIN_ADDRESS,
+                "address": TOKEN_ADDRESS,
                 "name": name,
                 "symbol": symbol,
                 "decimals": decimals,
@@ -960,7 +966,7 @@ class PMM_Cookbook:
         except Exception as e:
             return {
                 "network": "Base Sepolia Testnet",
-                "address": TENBIN_ADDRESS,
+                "address": TOKEN_ADDRESS,
                 "error": str(e),
                 "note": "Contract may not be deployed yet",
             }
@@ -993,7 +999,7 @@ class PMM_Cookbook:
         return tx_hash.hex()
 
     def approve_tenbin(self, amount: float) -> str:
-        """Approve PMM to spend TENBIN."""
+        """Approve PMM to spend token."""
         amount_wei = int(amount * self.token_multiplier)
 
         print(f"\nApproving {self.format_token(amount_wei)} for PMM...")
@@ -1003,7 +1009,7 @@ class PMM_Cookbook:
         )
 
     def mint_test_tenbin(self, amount: float) -> str:
-        """Mint test TENBIN tokens (testnet only, requires minter role).
+        """Mint test tokens (testnet only, requires minter role).
         
         Note: This only works if your account is the minter or if
         the token allows public minting on testnet.
@@ -1013,14 +1019,14 @@ class PMM_Cookbook:
 
         amount_wei = int(amount * self.token_multiplier)
 
-        print(f"\nMinting {self.format_token(amount_wei)} test TENBIN...")
+        print(f"\nMinting {self.format_token(amount_wei)} test tokens...")
         return self._build_and_send_tx(
             self.tenbin.functions.mint(self.account.address, amount_wei),
             gas=100000
         )
 
     def apply_for_market(self, platform_id: int) -> str:
-        """Apply to create a new market (costs 10 TENBIN)."""
+        """Apply to create a new market (costs 10 tokens)."""
         if not self.account:
             raise ValueError("Private key required for transactions")
 
@@ -1034,7 +1040,7 @@ class PMM_Cookbook:
             raise ValueError(f"Application already pending for platform {platform_id}")
 
         print(f"\nApplying for market {platform_id}")
-        print("Application fee: 10 TENBIN")
+        print("Application fee: 10 tokens")
 
         return self._build_and_send_tx(
             self.pmm.functions.applyForMarket(platform_id),
@@ -1191,7 +1197,7 @@ def main():
         print("Usage: python pmm_cookbook_testnet.py <command> [args]")
         print("\nAvailable commands:")
         print("  check-market <platform_id>     - Check market state")
-        print("  get-token-info                 - Get TENBIN token info")
+        print("  get-token-info                 - Get token info")
         print("  health                         - Check contract health")
         print("  yield-rate                     - Get current yield rate")
         print("  fee-info                       - Get protocol fee info")
@@ -1215,7 +1221,7 @@ def main():
 
     elif command == "get-token-info":
         result = cookbook.get_token_info()
-        print("\nTENBIN Token Info:")
+        print("\nToken Info:")
         for key, value in result.items():
             print(f"  {key}: {value}")
 

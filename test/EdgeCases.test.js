@@ -552,8 +552,8 @@ describe("TENBIN Token Edge Cases", function () {
   });
 
   it("Should have correct name and symbol", async function () {
-    expect(await tenbin.name()).to.equal("TENBIN");
-    expect(await tenbin.symbol()).to.equal("TENBIN");
+    expect(await tenbin.name()).to.equal("Tenbin Dollar");
+    expect(await tenbin.symbol()).to.equal("TBD");
   });
 
   it("Should handle very large minting amounts", async function () {

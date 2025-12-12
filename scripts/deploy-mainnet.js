@@ -97,9 +97,9 @@ async function main() {
     // Transfer TENBIN minting power to PMM if TENBIN was deployed here
     if (tenbinInstance) {
       await (await tenbinInstance.setMinter(proxyAddress)).wait();
-      console.log("TENBIN minter set to PMM:", proxyAddress);
+      console.log("TBD minter set to PMM:", proxyAddress);
     } else {
-      console.log("Note: Using existing TENBIN; ensure PMM has minting rights if required.");
+      console.log("Note: Using existing payment token; ensure PMM has minting rights if required.");
     }
     
     // Get implementation address
