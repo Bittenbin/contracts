@@ -77,6 +77,10 @@ async function main() {
 
   // Save deployment addresses
   const fs = require("fs");
+  // Ensure deployments directory exists
+  if (!fs.existsSync("deployments")) {
+    fs.mkdirSync("deployments");
+  }
   const deploymentInfo = {
     network: network.name,
     contracts: {
