@@ -28,6 +28,7 @@ For transactions, import and use the PMM_Cookbook class with your private key.
 """
 
 import math
+import os
 from typing import List, Tuple, Optional, Dict, Any
 from web3 import Web3
 from eth_account import Account
@@ -1008,6 +1009,28 @@ class PMM_Cookbook:
             gas=100000
         )
 
+    def approve_market(self, platform_id: int) -> str:
+        """Approve a pending market application (owner only)."""
+        if not self.account:
+            raise ValueError("Private key required for transactions")
+
+        print(f"\n✅ Approving market application for platform {platform_id}...")
+        return self._build_and_send_tx(
+            self.pmm.functions.approveMarket(platform_id),
+            gas=200000
+        )
+
+    def deny_market(self, platform_id: int) -> str:
+        """Deny a pending market application (owner only)."""
+        if not self.account:
+            raise ValueError("Private key required for transactions")
+
+        print(f"\n❌ Denying market application for platform {platform_id}...")
+        return self._build_and_send_tx(
+            self.pmm.functions.denyMarket(platform_id),
+            gas=200000
+        )
+
     def mint_test_tenbin(self, amount: float) -> str:
         """Mint test tokens (testnet only, requires minter role).
         
@@ -1201,13 +1224,25 @@ def main():
         print("  health                         - Check contract health")
         print("  yield-rate                     - Get current yield rate")
         print("  fee-info                       - Get protocol fee info")
+        print("\nTransaction commands (require PRIVATE_KEY env var):")
+        print("  approve <amount>               - Approve PMM to spend token amount")
+        print("  apply <platform_id>            - Apply for market (costs 10 tokens)")
+        print("  approve-market <platform_id>   - Approve application (owner only)")
+        print("  deny-market <platform_id>      - Deny application (owner only)")
+        print("  create-market <id> <x> <y>     - Create market directly")
+        print("  vote <id> <x> <y>              - Vote to move market coordinate")
+        print("  claim-yield <platform_id>      - Claim yield for platform")
+        print("  set-fee <basis_points>         - Set protocol fee (0-100 bp)")
+        print("  distribute-fees [amount]       - Distribute protocol fees (owner only)")
+        print("  mint-test <amount>             - Mint test tokens (only if your account is token minter)")
         print("  create-wallet                  - Generate new wallet")
         print("\n💡 This is for BASE SEPOLIA TESTNET")
         print("   Get test ETH from: https://www.alchemy.com/faucets/base-sepolia")
         return
 
     command = sys.argv[1]
-    cookbook = PMM_Cookbook()
+    # Load PRIVATE_KEY from environment for transaction commands (optional for read-only)
+    cookbook = PMM_Cookbook(private_key=os.getenv("PRIVATE_KEY"))
 
     if command == "check-market":
         if len(sys.argv) < 3:
@@ -1242,6 +1277,92 @@ def main():
         print("\nProtocol Fee Info:")
         for key, value in result.items():
             print(f"  {key}: {value}")
+
+    elif command == "approve":
+        if len(sys.argv) < 3:
+            print("Usage: python pmm_cookbook_testnet.py approve <amount>")
+            print("Example: python pmm_cookbook_testnet.py approve 1000")
+            return
+        amount = float(sys.argv[2])
+        tx = cookbook.approve_tenbin(amount)
+        print("\nApprove TX:", tx)
+
+    elif command == "apply":
+        if len(sys.argv) < 3:
+            print("Usage: python pmm_cookbook_testnet.py apply <platform_id>")
+            return
+        platform_id = int(sys.argv[2])
+        tx = cookbook.apply_for_market(platform_id)
+        print("\nApply TX:", tx)
+
+    elif command == "approve-market":
+        if len(sys.argv) < 3:
+            print("Usage: python pmm_cookbook_testnet.py approve-market <platform_id>")
+            return
+        platform_id = int(sys.argv[2])
+        tx = cookbook.approve_market(platform_id)
+        print("\nApproveMarket TX:", tx)
+
+    elif command == "deny-market":
+        if len(sys.argv) < 3:
+            print("Usage: python pmm_cookbook_testnet.py deny-market <platform_id>")
+            return
+        platform_id = int(sys.argv[2])
+        tx = cookbook.deny_market(platform_id)
+        print("\nDenyMarket TX:", tx)
+
+    elif command == "create-market":
+        if len(sys.argv) < 5:
+            print("Usage: python pmm_cookbook_testnet.py create-market <platform_id> <x> <y>")
+            print("Example: python pmm_cookbook_testnet.py create-market 1234567890 3 4")
+            return
+        platform_id = int(sys.argv[2])
+        x = int(sys.argv[3])
+        y = int(sys.argv[4])
+        tx = cookbook.create_market(platform_id, x, y)
+        print("\nCreateMarket TX:", tx)
+
+    elif command == "vote":
+        if len(sys.argv) < 5:
+            print("Usage: python pmm_cookbook_testnet.py vote <platform_id> <x> <y>")
+            print("Example: python pmm_cookbook_testnet.py vote 1234567890 5 12")
+            return
+        platform_id = int(sys.argv[2])
+        x = int(sys.argv[3])
+        y = int(sys.argv[4])
+        tx = cookbook.vote_on_market(platform_id, x, y)
+        print("\nVote TX:", tx)
+
+    elif command == "claim-yield":
+        if len(sys.argv) < 3:
+            print("Usage: python pmm_cookbook_testnet.py claim-yield <platform_id>")
+            return
+        platform_id = int(sys.argv[2])
+        tx = cookbook.claim_yield(platform_id)
+        print("\nClaimYield TX:", tx)
+
+    elif command == "set-fee":
+        if len(sys.argv) < 3:
+            print("Usage: python pmm_cookbook_testnet.py set-fee <basis_points>")
+            print("Example: python pmm_cookbook_testnet.py set-fee 50")
+            return
+        fee_bp = int(sys.argv[2])
+        tx = cookbook.set_protocol_fee(fee_bp)
+        print("\nSetProtocolFee TX:", tx)
+
+    elif command == "distribute-fees":
+        # Optional amount in tokens; if omitted, distribute all
+        amount = float(sys.argv[2]) if len(sys.argv) >= 3 else None
+        tx = cookbook.distribute_protocol_fees(amount)
+        print("\nDistributeFees TX:", tx)
+
+    elif command == "mint-test":
+        if len(sys.argv) < 3:
+            print("Usage: python pmm_cookbook_testnet.py mint-test <amount>")
+            return
+        amount = float(sys.argv[2])
+        tx = cookbook.mint_test_tenbin(amount)
+        print("\nMint TX:", tx)
 
     elif command == "create-wallet":
         create_wallet()
