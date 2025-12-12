@@ -6,8 +6,8 @@ Complete guide for interacting with PMM on Base Sepolia
 💡 This is for BASE SEPOLIA TESTNET - safe for testing!
 
 Contract Addresses (Base Sepolia):
-- PythagoreanMarketMaker: 0x8F6a072098B0440690f81246538CF761BE201C7F
-- Tenbin Dollar (TBD) Token: 0x5399156BAab6A6e2C51D2239B23366dE66A01E5b
+- PythagoreanMarketMaker: 0x2642ED665649ac28bAC25B98f71491bD1a468b8d
+- Tenbin Dollar (TBD) Token: 0x25a8A0306DcB5a0d07A8Eb56d761E0fC7Dd29767
 - Owner Fee Recipient: 0x2dfc776B09234f617DFc38Cb8De1BB2B0B7C4E5B
 - Protocol Fee Recipient: 0xb322A547De3308C2426aEa700c8176574E57eEe6
 
@@ -39,9 +39,9 @@ load_dotenv()
 BASE_SEPOLIA_RPC = "https://sepolia.base.org"
 CHAIN_ID = 84532
 
-# Base Sepolia Deployed Addresses (November 26, 2025)
-PMM_ADDRESS = "0x8F6a072098B0440690f81246538CF761BE201C7F"
-TOKEN_ADDRESS = "0x5399156BAab6A6e2C51D2239B23366dE66A01E5b"
+# Base Sepolia Deployed Addresses (December 12, 2025)
+PMM_ADDRESS = "0x2642ED665649ac28bAC25B98f71491bD1a468b8d"
+TOKEN_ADDRESS = "0x25a8A0306DcB5a0d07A8Eb56d761E0fC7Dd29767"
 
 PMM_ABI = [
     # Market Creation

@@ -12,10 +12,10 @@ A decentralized reputation system using coordinate-based markets to track votes 
 - **Explorer**: [Basescan](https://basescan.org)
 
 ### Base Sepolia Testnet
-- **PMM Contract**: [`0x8F6a072098B0440690f81246538CF761BE201C7F`](https://sepolia.basescan.org/address/0x8F6a072098B0440690f81246538CF761BE201C7F)
-- **Token (legacy)**: [`0x5399156BAab6A6e2C51D2239B23366dE66A01E5b`](https://sepolia.basescan.org/address/0x5399156BAab6A6e2C51D2239B23366dE66A01E5b)
+- **PMM Contract**: [`0x2642ED665649ac28bAC25B98f71491bD1a468b8d`](https://sepolia.basescan.org/address/0x2642ED665649ac28bAC25B98f71491bD1a468b8d)
+- **Token (TBD)**: [`0x25a8A0306DcB5a0d07A8Eb56d761E0fC7Dd29767`](https://sepolia.basescan.org/address/0x25a8A0306DcB5a0d07A8Eb56d761E0fC7Dd29767)
 - **Chain ID**: 84532
-- **Deployed**: November 26, 2025
+- **Deployed**: December 12, 2025
 - **Explorer**: [Sepolia Basescan](https://sepolia.basescan.org)
 - **Faucet**: [Base Sepolia Faucet](https://www.alchemy.com/faucets/base-sepolia)
 
