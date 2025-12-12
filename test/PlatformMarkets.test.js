@@ -1620,6 +1620,9 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
   });
 
   describe("Yield System", function () {
+    const WAD = 10n ** 18n;
+    const YEAR = 365n * 24n * 60n * 60n;
+
     beforeEach(async function () {
       // Set PMM as the minter for TENBIN
       await tenbin.setMinter(await pmm.getAddress());
@@ -1637,9 +1640,9 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       const rateAfter = await pmm.currentAnnualYieldWad();
       expect(rateAfter).to.be.gt(0);
       
-      // K = 0.75 * sqrt(pi) ≈ 1.329
-      // Rate for 1 market = K / sqrt(1) = K ≈ 1.329
-      const K_WAD = 1329340388179137000n;
+      // K = 4 / (3 * sqrt(pi)) ≈ 0.752
+      // Rate for 1 market = K / sqrt(1) = K ≈ 0.752
+      const K_WAD = 752252753838666400n;
       expect(rateAfter).to.be.closeTo(K_WAD, K_WAD / 100n); // Within 1%
     });
     
@@ -1669,7 +1672,7 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       // yCost should reflect the 4 y-votes component
       // xCost should reflect the 3 x-votes component
       // Total should be close to hypotenuse * 1e6 (5 TENBIN)
-      expect(holdings.yCost + holdings.disyCost).to.be.closeTo(
+      expect(holdings.yCost + holdings.xCost).to.be.closeTo(
         5000000n, // 5 TENBIN in wei
         100n // Allow small rounding
       );
@@ -1679,46 +1682,54 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
     
     it("Should accrue yield over time", async function () {
       await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
-      
+
+      // Yield accrues only when the user interacts (claim or trade) because `_accrueYield`
+      // is called for `msg.sender`. So we advance time then claim for Alice.
+      const holdingBefore = await pmm.holdings(PLATFORM_ID_1, alice.address);
+      const base = holdingBefore.yCost + holdingBefore.xCost; // token units
+      const last = BigInt(holdingBefore.lastAccrual);
+
       // Fast forward time (1 year)
-      await ethers.provider.send("evm_increaseTime", [365 * 24 * 60 * 60]);
+      const dt = YEAR;
+      await ethers.provider.send("evm_increaseTime", [Number(dt)]);
       await ethers.provider.send("evm_mine", []);
-      
-      // Trigger accrual by voting (0 cost rebalance won't work, need actual trade)
-      // Or we can check holdings directly after time passes
-      // The accrual happens on next trade or claim
-      
-      // For testing, let's vote to trigger accrual
-      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
-      
-      // Now check Alice's holdings (accrual happened during Bob's vote)
-      const holdings = await pmm.holdings(PLATFORM_ID_1, alice.address);
-      
-      // After 1 year with rate K ≈ 1.329 and base ≈ 5 TENBIN
-      // Yield ≈ 5 * 1.329 = 6.645 TENBIN
-      // But this depends on exact implementation
-      expect(holdings.unclaimedYield).to.be.gte(0);
+
+      const rateWad = await pmm.currentAnnualYieldWad();
+      const expected = (base * rateWad / WAD) * dt / YEAR;
+
+      const balanceBefore = await tenbin.balanceOf(alice.address);
+      await pmm.connect(alice).claimYield(PLATFORM_ID_1);
+      const balanceAfter = await tenbin.balanceOf(alice.address);
+      const minted = balanceAfter - balanceBefore;
+
+      // Assert minted yield matches expected (allow tiny rounding tolerance)
+      expect(minted).to.be.closeTo(expected, 5n);
+
+      const holdingAfter = await pmm.holdings(PLATFORM_ID_1, alice.address);
+      expect(holdingAfter.unclaimedYield).to.equal(0);
     });
     
     it("Should allow claiming yield", async function () {
       await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
-      
+
+      const holdingBefore = await pmm.holdings(PLATFORM_ID_1, alice.address);
+      const base = holdingBefore.yCost + holdingBefore.xCost;
+
       // Fast forward time (30 days)
-      await ethers.provider.send("evm_increaseTime", [30 * 24 * 60 * 60]);
+      const dt = 30n * 24n * 60n * 60n;
+      await ethers.provider.send("evm_increaseTime", [Number(dt)]);
       await ethers.provider.send("evm_mine", []);
-      
-      // Trigger accrual
-      await pmm.connect(bob).voteOnMarket(PLATFORM_ID_1, 5, 12);
-      
+
+      const rateWad = await pmm.currentAnnualYieldWad();
+      const expected = (base * rateWad / WAD) * dt / YEAR;
+
       const balanceBefore = await tenbin.balanceOf(alice.address);
-      
-      // Alice claims yield
       await pmm.connect(alice).claimYield(PLATFORM_ID_1);
-      
       const balanceAfter = await tenbin.balanceOf(alice.address);
-      
-      // Balance should increase (yield minted)
-      expect(balanceAfter).to.be.gte(balanceBefore);
+      const minted = balanceAfter - balanceBefore;
+
+      expect(minted).to.be.gt(0n);
+      expect(minted).to.be.closeTo(expected, 5n);
       
       // Holdings should show 0 unclaimed yield after claim
       const holdings = await pmm.holdings(PLATFORM_ID_1, alice.address);
@@ -1729,13 +1740,13 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       await pmm.connect(alice).createMarket(PLATFORM_ID_1, 3, 4);
       
       const holdingsBefore = await pmm.holdings(PLATFORM_ID_1, alice.address);
-      const initialCost = holdingsBefore.yCost + holdingsBefore.disyCost;
+      const initialCost = holdingsBefore.yCost + holdingsBefore.xCost;
       
       // Alice buys more votes
       await pmm.connect(alice).voteOnMarket(PLATFORM_ID_1, 5, 12);
       
       const holdingsAfter = await pmm.holdings(PLATFORM_ID_1, alice.address);
-      const finalCost = holdingsAfter.yCost + holdingsAfter.disyCost;
+      const finalCost = holdingsAfter.yCost + holdingsAfter.xCost;
       
       // Cost basis should increase
       expect(finalCost).to.be.gt(initialCost);
@@ -1753,8 +1764,8 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       const holdingsAfter = await pmm.holdings(PLATFORM_ID_1, alice.address);
       
       // Cost basis should decrease
-      expect(holdingsAfter.yCost + holdingsAfter.disyCost)
-        .to.be.lt(holdingsBefore.yCost + holdingsBefore.disyCost);
+      expect(holdingsAfter.yCost + holdingsAfter.xCost)
+        .to.be.lt(holdingsBefore.yCost + holdingsBefore.xCost);
     });
     
     it("Should not change cost basis on rebalance", async function () {
@@ -1768,8 +1779,8 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
       const holdingsAfter = await pmm.holdings(PLATFORM_ID_1, alice.address);
       
       // Total cost basis should remain the same
-      expect(holdingsAfter.yCost + holdingsAfter.disyCost)
-        .to.equal(holdingsBefore.yCost + holdingsBefore.disyCost);
+      expect(holdingsAfter.yCost + holdingsAfter.xCost)
+        .to.equal(holdingsBefore.yCost + holdingsBefore.xCost);
     });
     
     it("Should revert claim if minting not supported", async function () {

@@ -164,7 +164,7 @@ PMM implements a yield system that rewards long-term holders:
 ### Yield Rate Formula
 ```
 Annual Yield Rate = K / sqrt(totalMarkets)
-where K = 0.75 * sqrt(π) ≈ 1.329
+where K = 4 / (3 * sqrt(π)) ≈ 0.752
 ```
 
 - More markets → lower individual yield rate (sustainable tokenomics)

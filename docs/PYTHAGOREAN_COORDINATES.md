@@ -114,7 +114,7 @@ PMM rewards long-term holders with yield on their positions:
 ### Annual Yield Rate
 ```
 Rate = K / sqrt(totalMarkets)
-where K = 0.75 * sqrt(π) ≈ 1.329
+where K = 4 / (3 * sqrt(π)) ≈ 0.752
 ```
 
 - More markets → lower individual yield rate

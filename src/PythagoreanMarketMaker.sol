@@ -32,7 +32,7 @@ interface IMintableERC20 {
  * - Application fee: 10 TENBIN flat fee for market applications
  * 
  * Yield System:
- * - Annual yield rate = K / sqrt(totalMarkets) where K ≈ 1.329
+ * - Annual yield rate = K / sqrt(totalMarkets) where K ≈ 0.752
  * - Yield accrues on cost basis (amount paid for votes)
  * - PMM must be set as TENBIN minter for yield claiming
  * 
@@ -60,8 +60,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     uint256 public constant MAX_HYPOTENUSE = 1.5e9;
     uint256 public constant DEFAULT_SLIPPAGE_BASIS_POINTS = 250;
     uint256 public constant SECONDS_PER_YEAR = 365 days;
-    // K = 0.75 * sqrt(pi) in WAD (1e18)
-    uint256 private constant K_WAD = 1329340388179137000; // ~1.329340388179137e18
+    // K = 4 / (3 * sqrt(pi)) in WAD (1e18)
+    uint256 private constant K_WAD = 752252753838666400; // ~0.7522527538386664e18
     
     // Milestone thresholds
     uint256 public constant MILESTONE_1 = 100;
@@ -310,8 +310,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
 
     /**
      * @notice Get the current annual yield rate in WAD format (1e18 = 100%)
-     * @dev Rate = K / sqrt(totalMarkets) where K = 0.75 * sqrt(π) ≈ 1.329
-     * @return Annual yield rate scaled by 1e18 (e.g., 1.329e18 = 132.9% APY)
+     * @dev Rate = K / sqrt(totalMarkets) where K = 4 / (3 * sqrt(π)) ≈ 0.752
+     * @return Annual yield rate scaled by 1e18 (e.g., 0.752e18 = 75.2% APY)
      */
     function currentAnnualYieldWad() public view returns (uint256) {
         if (totalMarkets == 0) {
