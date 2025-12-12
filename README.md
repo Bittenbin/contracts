@@ -6,7 +6,7 @@ A decentralized reputation system using coordinate-based markets to track votes 
 
 ### Base Mainnet
 - **PMM Contract**: [`0xff763ea9508Be30840edB942D4ffDEAaa4Ec9FEc`](https://basescan.org/address/0xff763ea9508Be30840edB942D4ffDEAaa4Ec9FEc)
-- **Token (TBD)**: [`0xAEe7CdeEB72D645Fc9598d4AF47C43303A6c699f`](https://basescan.org/address/0xAEe7CdeEB72D645Fc9598d4AF47C43303A6c699f)
+- **Token (TBD)**: [`0xAEe7CdeEB72D645Fc9598d4AF47C43303A6c699f`](https://basescan.org/address/0xAEe7CdeEB72D645Fc9598d4AF47C43303A6c699f) [Verified]
 - **Chain ID**: 8453
 - **Deployed**: December 12, 2025
 - **Explorer**: [Basescan](https://basescan.org)
