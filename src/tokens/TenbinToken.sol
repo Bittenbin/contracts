@@ -11,14 +11,14 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
  * @dev 6 decimals for precise financial calculations. Supports role-based minting and burning.
  * 
  * Key Features:
- * - Initial supply: 1,000,000 TBD minted to deployer
+ * - Initial supply: 11,110,000 TBD minted to deployer
  * - Separate minter and burner roles (independent from owner)
  * - No hard cap: minting is unlimited for yield distribution
  * - PMM contract should be set as minter to enable yield claims
  */
 contract TenbinToken is ERC20, Ownable {
     uint8 private constant DECIMALS = 6;
-    uint256 private constant INITIAL_SUPPLY = 1_000_000 * 10**DECIMALS;
+    uint256 private constant INITIAL_SUPPLY = 11_110_000 * 10**DECIMALS;
     
     address public minter;
     address public burner;

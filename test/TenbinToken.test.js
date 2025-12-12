@@ -16,8 +16,8 @@ describe("Tenbin Dollar (TBD) Token", function () {
     expect(await tenbin.decimals()).to.equal(6);
   });
 
-  it("Should mint 1,000,000 TBD to owner at deployment", async function () {
-    const initialSupply = ethers.parseUnits("1000000", 6);
+  it("Should mint 11,110,000 TBD to owner at deployment", async function () {
+    const initialSupply = ethers.parseUnits("11110000", 6);
     expect(await tenbin.totalSupply()).to.equal(initialSupply);
     expect(await tenbin.balanceOf(owner.address)).to.equal(initialSupply);
   });

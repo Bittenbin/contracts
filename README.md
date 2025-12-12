@@ -45,7 +45,7 @@ PMM uses **Tenbin Dollar (TBD)** as its native payment and reward token:
 
 - **Name/Symbol**: Tenbin Dollar (`TBD`)
 - **Decimals**: 6
-- **Initial Supply**: 1,000,000 TBD minted to deployer
+- **Initial Supply**: 11,110,000 TBD minted to deployer
 - **Roles**:
   - **Minter**: Can mint unlimited TBD (set to PMM contract after deployment)
   - **Burner**: Can burn TBD from any address (initially owner)
