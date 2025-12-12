@@ -1401,20 +1401,29 @@ describe("PythagoreanMarketMaker - Comprehensive Test Suite", function () {
 
     it("Should correctly calculate fees with various fee rates", async function () {
       const testFees = [0, 25, 50, 75, 100]; // 0%, 0.25%, 0.5%, 0.75%, 1%
+      // Must use unique coordinates per market (coordinates are globally unique)
+      const testCoords = [
+        { x: 3, y: 4, baseAmount: 5000000n },    // hypotenuse = 5
+        { x: 5, y: 12, baseAmount: 13000000n },  // hypotenuse = 13
+        { x: 8, y: 15, baseAmount: 17000000n },  // hypotenuse = 17
+        { x: 7, y: 24, baseAmount: 25000000n },  // hypotenuse = 25
+        { x: 20, y: 21, baseAmount: 29000000n }, // hypotenuse = 29
+      ];
       
-      for (const feeBP of testFees) {
+      for (let i = 0; i < testFees.length; i++) {
+        const feeBP = testFees[i];
         await pmm.connect(owner).setProtocolFee(feeBP);
         
         const platformId = getUniquePlatformId();
         const balanceBefore = await tenbin.balanceOf(alice.address);
         
-        await pmm.connect(alice).createMarket(platformId, 3, 4);
+        const { x, y, baseAmount } = testCoords[i];
+        await pmm.connect(alice).createMarket(platformId, x, y);
         
         const balanceAfter = await tenbin.balanceOf(alice.address);
         const spent = balanceBefore - balanceAfter;
         
-        // Expected: 5 TENBIN * (1 + feeBP/10000)
-        const baseAmount = 5000000n; // 5 TENBIN
+        // Expected: baseAmount * (1 + feeBP/10000)
         const expectedFee = (baseAmount * BigInt(feeBP)) / 10000n;
         const expectedTotal = baseAmount + expectedFee;
         
