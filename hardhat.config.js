@@ -42,11 +42,9 @@ module.exports = {
     }
   },
   etherscan: {
-    apiKey: {
-      sepolia: process.env.ETHERSCAN_API_KEY || "",
-      base: process.env.BASESCAN_API_KEY || "",
-      "base-sepolia": process.env.BASESCAN_API_KEY || ""
-    },
+    // Etherscan Verify plugin now prefers Etherscan V2 API keys (single key for all supported chains).
+    // Keep BASESCAN_API_KEY as a fallback for backwards compatibility with existing env setups.
+    apiKey: process.env.ETHERSCAN_API_KEY || process.env.BASESCAN_API_KEY || "",
     customChains: [
       {
         network: "base-sepolia",
