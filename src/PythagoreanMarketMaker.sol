@@ -13,11 +13,12 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 /**
  * @title PythagoreanMarketMaker
  * @author rtedwardchen and clwsqc
- * @notice Decentralized reputation system with individual vote tracking and Pythagorean coordinate validation
+ * @notice Decentralized reputation system with individual vote tracking and coordinate validation
  * @dev Upgradeable implementation of a market maker using UUPS pattern
  * 
  * Each voter's contributions are tracked to enable fair selling mechanics.
- * Markets are positioned on Pythagorean coordinates to ensure mathematical validity.
+ * Markets are positioned on coordinates where x and y are positive integers.
+ * Trading is restricted to single-axis movements: either x or y can change per transaction, not both.
  * 
  * Fee Structure:
  * - Protocol fee: 100 basis points (1%)
@@ -44,15 +45,6 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     uint256 public constant MAX_HYPOTENUSE = 1.5e9;
     uint256 public constant DEFAULT_SLIPPAGE_BASIS_POINTS = 250;
     
-    // Milestone thresholds
-    uint256 public constant MILESTONE_1 = 100;
-    uint256 public constant MILESTONE_2 = 1000;
-    uint256 public constant MILESTONE_3 = 10000;
-    uint256 public constant MILESTONE_4 = 100000;
-    uint256 public constant MILESTONE_5 = 1000000;
-    uint256 public constant MILESTONE_6 = 10000000;
-    uint256 public constant MILESTONE_7 = 100000000;
-    
     // State variables
     IERC20 public paymentToken;
     uint256 public paymentTokenDecimals;
@@ -68,7 +60,6 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     
     mapping(uint256 => address) public marketCreator;
     mapping(uint256 => uint256) public totalVoteVolume;
-    mapping(uint256 => uint256) public highestMilestoneReached;
     
     mapping(uint256 => mapping(address => VoterPosition)) public voterPositions;
     
@@ -180,13 +171,6 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     event ContractUpgraded(
         address indexed oldImplementation,
         address indexed newImplementation,
-        uint256 timestamp
-    );
-    
-    event MarketMilestone(
-        uint256 indexed platformId,
-        uint256 totalVotes,
-        uint256 milestone,
         uint256 timestamp
     );
     
@@ -356,8 +340,6 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         emit VoterPositionUpdate(platformId, msg.sender, initialY, initialX, initialHypotenuse);
         emit VoterFirstParticipation(platformId, msg.sender, block.timestamp);
         emit LiquidityAdded(platformId, totalPayment, paymentToken.balanceOf(address(this)));
-        
-        _checkAndEmitMilestone(platformId, totalVotes);
     }
     
     /**
@@ -408,6 +390,14 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         }
         
         _validateCoordinateBounds(newX, newY);
+        
+        // Restrict trading to one axis at a time: either x changes OR y changes, not both
+        Coordinate memory current = marketCoordinates[platformId];
+        bool xChanged = newX != current.x;
+        bool yChanged = newY != current.y;
+        if (xChanged && yChanged) {
+            revert InvalidCoordinate();
+        }
         
         if (!isValidCoordinate(newX, newY)) {
             revert InvalidPythagoreanCoordinate();
@@ -522,8 +512,6 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         if (isFirstTimeVoter) {
             emit VoterFirstParticipation(platformId, msg.sender, block.timestamp);
         }
-        
-        _checkAndEmitMilestone(platformId, marketCoordinates[platformId].x + marketCoordinates[platformId].y);
     }
     
     /**
@@ -917,7 +905,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     }
     
     /**
-     * @dev Check if coordinates form a valid Pythagorean triple
+     * @dev Check if coordinates are valid (only requires x and y to be positive integers)
      * @param x The x coordinate
      * @param y The y coordinate
      * @return bool True if valid
@@ -940,7 +928,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
             return false;
         }
         
-        return c * c == sumSquares;
+        // Only require x and y to be positive integers (removed Pythagorean triple check)
+        return true;
     }
     
     /**
@@ -1104,50 +1093,6 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     function _validateCoordinateBounds(uint256 x, uint256 y) private pure {
         if (x > MAX_COORDINATE_VALUE || y > MAX_COORDINATE_VALUE) {
             revert CoordinateTooLarge();
-        }
-    }
-    
-    /**
-     * @dev Check and emit milestone events
-     * @param platformId The platform ID
-     * @param totalVotes Current total votes
-     */
-    function _checkAndEmitMilestone(uint256 platformId, uint256 totalVotes) internal {
-        uint256 highestReached = highestMilestoneReached[platformId];
-        
-        if (highestReached < MILESTONE_1 && totalVotes >= MILESTONE_1) {
-            emit MarketMilestone(platformId, totalVotes, MILESTONE_1, block.timestamp);
-            highestMilestoneReached[platformId] = MILESTONE_1;
-            highestReached = MILESTONE_1;
-        }
-        if (highestReached < MILESTONE_2 && totalVotes >= MILESTONE_2) {
-            emit MarketMilestone(platformId, totalVotes, MILESTONE_2, block.timestamp);
-            highestMilestoneReached[platformId] = MILESTONE_2;
-            highestReached = MILESTONE_2;
-        }
-        if (highestReached < MILESTONE_3 && totalVotes >= MILESTONE_3) {
-            emit MarketMilestone(platformId, totalVotes, MILESTONE_3, block.timestamp);
-            highestMilestoneReached[platformId] = MILESTONE_3;
-            highestReached = MILESTONE_3;
-        }
-        if (highestReached < MILESTONE_4 && totalVotes >= MILESTONE_4) {
-            emit MarketMilestone(platformId, totalVotes, MILESTONE_4, block.timestamp);
-            highestMilestoneReached[platformId] = MILESTONE_4;
-            highestReached = MILESTONE_4;
-        }
-        if (highestReached < MILESTONE_5 && totalVotes >= MILESTONE_5) {
-            emit MarketMilestone(platformId, totalVotes, MILESTONE_5, block.timestamp);
-            highestMilestoneReached[platformId] = MILESTONE_5;
-            highestReached = MILESTONE_5;
-        }
-        if (highestReached < MILESTONE_6 && totalVotes >= MILESTONE_6) {
-            emit MarketMilestone(platformId, totalVotes, MILESTONE_6, block.timestamp);
-            highestMilestoneReached[platformId] = MILESTONE_6;
-            highestReached = MILESTONE_6;
-        }
-        if (highestReached < MILESTONE_7 && totalVotes >= MILESTONE_7) {
-            emit MarketMilestone(platformId, totalVotes, MILESTONE_7, block.timestamp);
-            highestMilestoneReached[platformId] = MILESTONE_7;
         }
     }
 }
