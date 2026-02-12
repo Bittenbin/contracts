@@ -13,5 +13,6 @@ Key changelogs compared to the original PMM V2:
 4. In light of the new tokenomics, we:
 
 - removed Milestone-related contract logics and tests for simplicity;
-- updated some test scripts, for example removed the Flash loan test (Security.test.js:476);and - Reward farming test (Security.test.js:195) as rewards are proportional for time staked; and
-ensured that all other 195 tests passed.
+- migrated testing to Foundry (`.t.sol`) suites and removed legacy Hardhat JS tests;
+- removed Flash-loan and reward-farming style scenarios that are no longer applicable under proportional time-staked rewards; and
+- ensured the active test suites pass under the current fixed-supply/token-emission design.
