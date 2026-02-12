@@ -1,16 +1,8 @@
 const { ethers, upgrades } = require("hardhat");
-const readline = require("readline");
 
-// Base Mainnet USDC address
-const BASE_MAINNET_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
-
-// Create readline interface for user confirmation
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout
-});
-
-const question = (query) => new Promise((resolve) => rl.question(query, resolve));
+// Payment token (USDC) and reward token (TENBINIUM)
+const PAYMENT_TOKEN_ADDRESS = process.env.PAYMENT_TOKEN_USDC || "";
+const REWARD_TOKEN_ADDRESS = process.env.REWARD_TOKEN_TENBIN || "";
 
 async function main() {
   console.log("=================================");
@@ -33,7 +25,8 @@ async function main() {
   console.log("Network: Base Mainnet");
   console.log("Deployer:", deployer.address);
   console.log("Balance:", ethers.formatEther(balance), "ETH");
-  console.log("USDC Address:", BASE_MAINNET_USDC);
+  console.log("USDC Address:", PAYMENT_TOKEN_ADDRESS || "(required)");
+  console.log("TENBINIUM Address (if provided):", REWARD_TOKEN_ADDRESS || "(will deploy)");
   console.log("\n⚠️  IMPORTANT: This is a MAINNET deployment with REAL funds!");
   
   // Check if deployer has enough ETH
@@ -43,19 +36,30 @@ async function main() {
     process.exit(1);
   }
 
-  // Verify USDC contract exists
-  const usdcCode = await ethers.provider.getCode(BASE_MAINNET_USDC);
-  if (usdcCode === "0x") {
-    console.error("\n❌ ERROR: USDC contract not found at expected address!");
+  let paymentTokenAddress = PAYMENT_TOKEN_ADDRESS;
+  let rewardTokenAddress;
+  let tenbiniumInstance = null;
+
+  if (!paymentTokenAddress) {
+    console.error("\n❌ ERROR: PAYMENT_TOKEN_USDC is required!");
     process.exit(1);
   }
 
-  // Get user confirmation
-  const answer = await question("\n🚀 Do you want to proceed with deployment? (yes/no): ");
-  if (answer.toLowerCase() !== "yes") {
-    console.log("\n❌ Deployment cancelled");
-    rl.close();
-    process.exit(0);
+  if (process.env.DEPLOY_TENBIN === "true" || !REWARD_TOKEN_ADDRESS) {
+    console.log("\nDeploying TENBINIUM token on Base mainnet...");
+    const TenbinToken = await ethers.getContractFactory("TenbinToken");
+    tenbiniumInstance = await TenbinToken.deploy(deployer.address);
+    await tenbiniumInstance.waitForDeployment();
+    rewardTokenAddress = await tenbiniumInstance.getAddress();
+    console.log("TENBINIUM deployed to:", rewardTokenAddress);
+  } else {
+    // Verify TENBINIUM contract exists
+    const tenbiniumCode = await ethers.provider.getCode(REWARD_TOKEN_ADDRESS);
+    if (tenbiniumCode === "0x") {
+      console.error("\n❌ ERROR: TENBINIUM contract not found at provided address!");
+      process.exit(1);
+    }
+    rewardTokenAddress = REWARD_TOKEN_ADDRESS;
   }
 
   console.log("\n🔄 Starting deployment...\n");
@@ -67,10 +71,13 @@ async function main() {
     
     const pmm = await upgrades.deployProxy(
       PythagoreanMarketMaker,
-      [BASE_MAINNET_USDC],
+      [paymentTokenAddress, rewardTokenAddress],
       { 
         initializer: 'initialize',
-        timeout: 0 // No timeout for mainnet
+        timeout: 0, // No timeout for mainnet
+        txOverrides: {
+          gasLimit: 5000000
+        }
       }
     );
     
@@ -78,6 +85,14 @@ async function main() {
     const proxyAddress = await pmm.getAddress();
     
     console.log("✅ PythagoreanMarketMaker deployed to:", proxyAddress);
+    
+    // Transfer TENBINIUM minting power to PMM if TENBINIUM was deployed here
+    if (tenbiniumInstance) {
+      await (await tenbiniumInstance.setMinter(proxyAddress)).wait();
+      console.log("TENBINIUM minter set to PMM:", proxyAddress);
+    } else {
+      console.log("Note: Using existing TENBINIUM; ensure PMM has minting rights if required.");
+    }
     
     // Get implementation address
     const implementationAddress = await upgrades.erc1967.getImplementationAddress(proxyAddress);
@@ -87,12 +102,10 @@ async function main() {
     console.log("\n🔍 Verifying deployment...");
     const paymentToken = await pmm.paymentToken();
     const protocolFee = await pmm.PROTOCOL_FEE_BASIS_POINTS();
-    const minVotes = await pmm.MINIMUM_VOTES();
     const owner = await pmm.owner();
     
     console.log("Payment token:", paymentToken);
     console.log("Protocol fee:", protocolFee.toString(), "basis points");
-    console.log("Minimum votes:", minVotes.toString());
     console.log("Contract owner:", owner);
     
     // Fee recipients
@@ -108,13 +121,14 @@ async function main() {
       contracts: {
         PythagoreanMarketMaker: proxyAddress,
         Implementation: implementationAddress,
-        PaymentToken: BASE_MAINNET_USDC
+        PaymentToken: paymentTokenAddress,
+        RewardToken: rewardTokenAddress
       },
       deployer: deployer.address,
       deploymentBlock: await ethers.provider.getBlockNumber(),
       timestamp: new Date().toISOString(),
       gasPrice: (await ethers.provider.getFeeData()).gasPrice?.toString(),
-      notes: "Base Mainnet deployment with real USDC"
+      notes: "Base Mainnet deployment with USDC payments and TENBINIUM rewards"
     };
     
     // Ensure deployments directory exists
@@ -132,7 +146,7 @@ async function main() {
     console.log("=================================");
     console.log("\n📝 Next Steps:");
     console.log("1. Verify the proxy contract on Basescan:");
-    console.log(`   npx hardhat verify --network base ${proxyAddress} ${BASE_MAINNET_USDC}`);
+    console.log(`   npx hardhat verify --network base ${proxyAddress} ${paymentTokenAddress} ${rewardTokenAddress}`);
     console.log("\n2. Verify the implementation contract:");
     console.log(`   npx hardhat verify --network base ${implementationAddress}`);
     console.log("\n3. Test with a small market creation");
@@ -144,8 +158,6 @@ async function main() {
   } catch (error) {
     console.error("\n❌ Deployment failed:", error);
     process.exit(1);
-  } finally {
-    rl.close();
   }
 }
 

@@ -12,7 +12,7 @@ async function main() {
   const ethBalance = await ethers.provider.getBalance(signer.address);
   console.log(`\nETH Balance: ${ethers.formatEther(ethBalance)} ETH`);
   
-  // Try to get USDC balance if deployment exists
+  // Try to get TENBIN balance if deployment exists
   try {
     // Look for deployment files with new naming pattern
     const deploymentsDir = path.join(__dirname, "../deployments");
@@ -26,8 +26,14 @@ async function main() {
       
       console.log(`\nUsing deployment from: ${deployment.timestamp}`);
       
-      const paymentToken = deployment.contracts.PaymentToken || deployment.contracts.MockUSDC;
-      const usdc = await ethers.getContractAt("MockUSDC", paymentToken);
+      const paymentToken = deployment.contracts.PaymentToken;
+      // Attempt to use IERC20 for USDC balance
+      let usdc;
+      try {
+        usdc = await ethers.getContractAt("IERC20", paymentToken);
+      } catch {
+        usdc = await ethers.getContractAt("IERC20", paymentToken);
+      }
       
       const usdcBalance = await usdc.balanceOf(signer.address);
       console.log(`USDC Balance: ${ethers.formatUnits(usdcBalance, 6)} USDC`);
@@ -37,31 +43,48 @@ async function main() {
       
       console.log("\n=== Platform Market Info ===");
       console.log("Protocol Fee:", await pmm.PROTOCOL_FEE_BASIS_POINTS(), "basis points (1%)");
-      console.log("Minimum Votes:", await pmm.MINIMUM_VOTES());
       
       // Get fee recipients
       const feeInfo = await pmm.getFeeDistributionInfo();
       console.log("Owner Fee Recipient:", feeInfo.ownerRecipient);
       console.log("Protocol Fee Recipient:", feeInfo.protocolRecipient);
-      console.log("Accumulated Fees:", ethers.formatUnits(feeInfo.pendingFees, 6), "USDC");
+      console.log("Accumulated Fees:", ethers.formatUnits(feeInfo.pendingFees, 6), "TENBIN");
+      
+      // Show total markets and yield rate
+      try {
+        const totalMarkets = await pmm.totalMarkets();
+        console.log("Total Markets:", totalMarkets.toString());
+        
+        if (totalMarkets > 0) {
+          const yieldRate = await pmm.currentAnnualYieldWad();
+          console.log("Current Annual Yield Rate:", (Number(yieldRate) / 1e18 * 100).toFixed(2) + "%");
+        }
+      } catch (e) {
+        // totalMarkets or yield functions may not exist in older versions
+      }
       
       // Example: Check a few platform IDs
       console.log("\n=== Sample Market States ===");
-      const samplePlatformIds = [1234567890, 9876543210, 1111111111];
+      const sampleUrls = [
+        "https://apple.com",
+        "https://example.com",
+        "https://tenbin.finance"
+      ];
       
-      for (const platformId of samplePlatformIds) {
-        const exists = await pmm.marketExistsFor(platformId);
+      for (const url of sampleUrls) {
+        const pageId = BigInt(ethers.keccak256(ethers.toUtf8Bytes(url)));
+        const exists = await pmm.marketExistsFor(pageId);
         
         if (exists) {
-          const state = await pmm.getMarketState(platformId);
-          console.log(`\nPlatform ${platformId}:`);
+          const state = await pmm.getMarketState(pageId);
+          console.log(`\nPage ${url}:`);
           console.log(`  Position: (${state.x}, ${state.y})`);
-          console.log(`  Trust Score: ${(Number(state.trustScore) / 1e18).toFixed(3)}`);
+          console.log(`  Page Score: ${(Number(state.pageScore) / 1e18).toFixed(3)}`);
           console.log(`  Total Votes: ${state.totalVotes}`);
-          console.log(`  Creator: ${await pmm.marketCreator(platformId)}`);
-          console.log(`  Volume: ${await pmm.totalVoteVolume(platformId)}`);
+          console.log(`  Creator: ${await pmm.marketCreator(pageId)}`);
+          console.log(`  Volume: ${await pmm.totalVoteVolume(pageId)}`);
         } else {
-          console.log(`\nPlatform ${platformId}: No market exists`);
+          console.log(`\nPage ${url}: No market exists`);
         }
       }
     } else {

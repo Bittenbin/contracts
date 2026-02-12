@@ -1,19 +1,25 @@
 {
   "name": "pmm-smart-contract",
-  "version": "1.0.0",
-  "description": "Pythagorean Market Maker Smart Contracts",
+  "version": "2.0.0",
+  "description": "Pythagorean Market Maker - Decentralized reputation system with TENBIN token",
   "main": "index.js",
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",
     "test:platform": "hardhat test test/PlatformMarkets.test.js",
     "test:validation": "hardhat test --grep 'Coordinate Validation'",
+    "test:application": "hardhat test --grep 'Market Application'",
+    "test:yield": "hardhat test --grep 'Yield System'",
     "deploy": "hardhat run scripts/deploy.js --network localhost",
+    "deploy:sepolia": "hardhat run scripts/deploy.js --network base-sepolia",
+    "deploy:mainnet": "hardhat run scripts/deploy-mainnet.js --network base",
     "node": "hardhat node --hostname 0.0.0.0",
-    "check-balance": "hardhat run scripts/check-balance.js --network localhost"
+    "check-balance": "hardhat run scripts/check-balance.js --network localhost",
+    "check-balance:sepolia": "hardhat run scripts/check-balance.js --network base-sepolia",
+    "check-balance:mainnet": "hardhat run scripts/check-balance.js --network base"
   },
-  "keywords": ["blockchain", "ethereum", "smart-contracts", "reputation", "pythagorean"],
-  "author": "rtedwardchen",
+  "keywords": ["blockchain", "ethereum", "base", "smart-contracts", "reputation", "tenbin", "yield"],
+  "author": "clwsqc and rtedwardchen",
   "license": "MIT",
   "devDependencies": {
     "@nomicfoundation/hardhat-chai-matchers": "^2.0.2",

@@ -1,6 +1,10 @@
 require("@nomicfoundation/hardhat-toolbox");
 require("@openzeppelin/hardhat-upgrades");
-require("dotenv").config();
+const dotenv = require("dotenv");
+
+// Load local env overrides first, then fall back to .env
+dotenv.config({ path: ".env.local" });
+dotenv.config();
 
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
@@ -42,17 +46,21 @@ module.exports = {
     }
   },
   etherscan: {
-    apiKey: {
-      sepolia: process.env.ETHERSCAN_API_KEY || "",
-      base: process.env.BASESCAN_API_KEY || "",
-      "base-sepolia": process.env.BASESCAN_API_KEY || ""
-    },
+    apiKey: process.env.ETHERSCAN_API_KEY || "",
     customChains: [
+      {
+        network: "base",
+        chainId: 8453,
+        urls: {
+          apiURL: "https://api.etherscan.io/v2/api",
+          browserURL: "https://basescan.org"
+        }
+      },
       {
         network: "base-sepolia",
         chainId: 84532,
         urls: {
-          apiURL: "https://api-sepolia.basescan.org/api",
+          apiURL: "https://api.etherscan.io/v2/api",
           browserURL: "https://sepolia.basescan.org"
         }
       }

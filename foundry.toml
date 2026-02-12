@@ -6,6 +6,7 @@
  solc_version = "0.8.23"
  optimizer = true
  optimizer_runs = 200
+via_ir = true
  remappings = [
    "@openzeppelin/=node_modules/@openzeppelin/",
  ]
