@@ -13,7 +13,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
  * Tokenomics:
  * - Initial supply: 0 TENBIN (minted over time by PMM rewards)
  * - Max total supply: 21,000,000 TENBIN (hard cap)
- * - Emission pool: 20,000,000 TENBIN distributed over 20 years via PMM staking
+ * - PMM reward emission target: 1,000,000 TENBIN/year over 21 years (capped by MAX_SUPPLY)
  * 
  * Key Features:
  * - Separate minter and burner roles (independent from owner)
