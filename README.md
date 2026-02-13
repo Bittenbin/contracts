@@ -14,3 +14,13 @@ Key changelogs compared to the original PMM V2:
 - migrated active tests to Foundry (`.t.sol`);
 - removed legacy Hardhat JS test files; and
 - aligned scripts/docs with the fixed-supply PMM design.
+
+5. Added owner float withdrawals with a cumulative cap:
+- owner can call `withdrawOwnerFloat(amount)` to withdraw from liquidity;
+- withdrawals are capped cumulatively by a heuristic minimum float estimate (`minimumFloatEstimate()`); and
+- cap enforcement is: `totalOwnerFloatWithdrawn + amount <= minimumFloatEstimate()`.
+
+6. Restricted each vote-trade transaction to a single axis:
+- a trade can change either upvotes or downvotes in one transaction, not both;
+- diagonal coordinate moves are rejected; and
+- this simplifies position accounting and cost transitions for buy/sell flows.
