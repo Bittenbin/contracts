@@ -21,8 +21,8 @@ interface IMintableERC20 {
  * @dev Upgradeable implementation using UUPS proxy pattern with OpenZeppelin contracts
  * 
  * Core Mechanics:
- * - Markets exist at (downvotes, upvotes) coordinates
- * - Cost = sqrt(downvotes² + upvotes²) in USDC (hypotenuse-based pricing)
+ * - Markets exist at (x, y) coordinates
+ * - Cost = sqrt(x² + y²) in USDC (hypotenuse-based pricing)
  * - Each voter's contributions are tracked individually for fair selling
  * - Coordinates are globally unique across all markets
  * - Market creation is permissionless (no approval required)
@@ -32,8 +32,9 @@ interface IMintableERC20 {
  * - Fees accumulate in contract and can be distributed 50/50 to recipients
  * 
  * Staking Rewards System (Synthetix/SushiSwap O(1) Pattern):
- * - Constant emission: 1,000,000 TENBIN per year (~31.71 TENBIN/second)
- * - Total emission pool: 21,000,000 TENBIN over 21 years
+ * - First 20 years: fixed 1,000,000 TBN/year (per-second accrual)
+ * - Tail emission: yearly halving from 500,000 TBN/year (500k, 250k, 125k, ...)
+ * - Total emission remains capped at 21,000,000 TBN
  * - Rewards proportional to user's cost basis (stake) across all platforms
  * - Rewards paid in TENBIN tokens (separate from USDC payment token)
  * - O(1) gas complexity using rewardPerToken accumulator pattern
@@ -59,11 +60,12 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     uint256 public constant MAX_HYPOTENUSE = 1.5e9;
     uint256 public constant DEFAULT_SLIPPAGE_BASIS_POINTS = 250;
     uint256 public constant SECONDS_PER_YEAR = 365 days;
+    uint256 public constant PHASE_ONE_DURATION = 20 * 365 days;
+    uint256 public constant PHASE_ONE_ANNUAL_EMISSION = 1_000_000 * 1e6; // 1M TBN/year
+    uint256 public constant PHASE_TWO_INITIAL_ANNUAL_EMISSION = 500_000 * 1e6; // 500k TBN/year
+    uint256 public constant PHASE_TWO_HALVING_PERIOD = 365 days;
     
-    // Emission constants (Tokenomics: 21M over 21 years = 1M/year)
-    // 1,000,000 TENBIN/year = 1,000,000 * 1e6 / 31,536,000 ≈ 31,709 raw units/sec
-    uint256 public constant REWARD_RATE = 31709; // ~0.0317 TENBIN per second (6 decimals)
-    uint256 public constant EMISSION_DURATION = 21 * 365 days;
+    // Emission cap remains 21M TENBIN in raw units
     uint256 public constant MAX_EMISSION = 21_000_000 * 1e6; // 21M TENBIN in raw units
     
     
@@ -77,7 +79,6 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     
     uint256 public accumulatedProtocolFees;
     uint256 public totalMarkets; // total entities created
-    uint256 public totalOwnerFloatWithdrawn; // Cumulative owner withdrawals against min-float allowance
     
     mapping(uint256 => Coordinate) public marketCoordinates;
     mapping(uint256 => bool) public marketExists;
@@ -93,20 +94,20 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     mapping(uint256 => bytes32) public marketUrlHash;
     
     struct Coordinate {
-        uint256 downvotes;
-        uint256 upvotes;
+        uint256 x;
+        uint256 y;
     }
     
     struct VoterPosition {
-        uint256 upVotes;
-        uint256 downVotes;
+        uint256 yVotes;
+        uint256 xVotes;
         bool exists;
     }
     
     // Holding cost basis per platform per user (for tracking individual positions)
     struct HoldingCosts {
-        uint256 trustCost;       // in payment token units
-        uint256 distrustCost;    // in payment token units
+        uint256 yCost;       // in payment token units
+        uint256 xCost;    // in payment token units
     }
     mapping(uint256 => mapping(address => HoldingCosts)) public holdings;
     
@@ -133,8 +134,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     event MarketCreated(
         uint256 indexed pageId,
         address indexed creator,
-        uint256 downvotes,
-        uint256 upvotes,
+        uint256 x,
+        uint256 y,
         uint256 cost
     );
 
@@ -148,10 +149,10 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     event MarketVoteUpdate(
         uint256 indexed pageId,
         address indexed voter,
-        uint256 fromDownvotes,
-        uint256 fromUpvotes,
-        uint256 toDownvotes,
-        uint256 toUpvotes,
+        uint256 fromX,
+        uint256 fromY,
+        uint256 toX,
+        uint256 toY,
         int256 voteDelta,
         uint256 protocolFee
     );
@@ -159,8 +160,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     event VoterPositionUpdate(
         uint256 indexed pageId,
         address indexed voter,
-        uint256 upVotes,
-        uint256 downVotes,
+        uint256 yVotes,
+        uint256 xVotes,
         uint256 hypotenuse
     );
     
@@ -175,13 +176,6 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         uint256 protocolAmount
     );
 
-    event OwnerFloatWithdrawn(
-        address indexed to,
-        uint256 amount,
-        uint256 totalWithdrawn,
-        uint256 maxWithdrawable
-    );
-    
     // Comprehensive events for tracking and indexing
     
     event SlippageProtectionApplied(
@@ -203,10 +197,10 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         uint256 indexed pageId,
         bytes32 indexed oldCoordinateHash,
         bytes32 indexed newCoordinateHash,
-        uint256 oldDownvotes,
-        uint256 oldUpvotes,
-        uint256 newDownvotes,
-        uint256 newUpvotes
+        uint256 oldX,
+        uint256 oldY,
+        uint256 newX,
+        uint256 newY
     );
     
     event LiquidityAdded(
@@ -274,7 +268,6 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     error MintingNotSupported();
     error EmissionExhausted();
     error UpgradesDisabled();
-    error FloatWithdrawExceeded();
     
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -315,15 +308,62 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
 
     /**
      * @notice Get the last applicable timestamp for reward calculation
-     * @dev Returns the earlier of current time or emission end time
+     * @dev Emissions start from emissionStartTime and follow phased annual rates
      * @return Applicable timestamp for reward calculation
      */
     function lastTimeRewardApplicable() public view returns (uint256) {
-        if (emissionStartTime == 0) {
-            return block.timestamp;
+        return block.timestamp;
+    }
+
+    function _phaseTwoAnnualEmissionForEpoch(uint256 epoch) internal pure returns (uint256) {
+        if (epoch >= 256) {
+            return 0;
         }
-        uint256 emissionEndTime = emissionStartTime + EMISSION_DURATION;
-        return block.timestamp < emissionEndTime ? block.timestamp : emissionEndTime;
+        uint256 divisor = 1 << epoch;
+        if (divisor == 0) {
+            return 0;
+        }
+        return PHASE_TWO_INITIAL_ANNUAL_EMISSION / divisor;
+    }
+
+    function _rewardBetweenTimestamps(uint256 fromTimestamp, uint256 toTimestamp) internal view returns (uint256 totalReward) {
+        if (toTimestamp <= fromTimestamp || emissionStartTime == 0) {
+            return 0;
+        }
+
+        uint256 startTime = fromTimestamp;
+        if (startTime < emissionStartTime) {
+            startTime = emissionStartTime;
+        }
+        if (toTimestamp <= startTime) {
+            return 0;
+        }
+
+        uint256 phaseOneEndTime = emissionStartTime + PHASE_ONE_DURATION;
+
+        // Phase 1: fixed 1,000,000 TBN/year for first 20 years
+        if (startTime < phaseOneEndTime) {
+            uint256 phaseOneSegmentEnd = toTimestamp < phaseOneEndTime ? toTimestamp : phaseOneEndTime;
+            uint256 phaseOneDuration = phaseOneSegmentEnd - startTime;
+            totalReward += Math.mulDiv(phaseOneDuration, PHASE_ONE_ANNUAL_EMISSION, SECONDS_PER_YEAR);
+            startTime = phaseOneSegmentEnd;
+        }
+
+        // Phase 2: yearly halving from 500,000 TBN/year onward
+        while (startTime < toTimestamp) {
+            uint256 epoch = (startTime - phaseOneEndTime) / PHASE_TWO_HALVING_PERIOD;
+            uint256 annualEmission = _phaseTwoAnnualEmissionForEpoch(epoch);
+            if (annualEmission == 0) {
+                break;
+            }
+
+            uint256 epochEndTime = phaseOneEndTime + ((epoch + 1) * PHASE_TWO_HALVING_PERIOD);
+            uint256 endTime = toTimestamp < epochEndTime ? toTimestamp : epochEndTime;
+            uint256 duration = endTime - startTime;
+
+            totalReward += Math.mulDiv(duration, annualEmission, SECONDS_PER_YEAR);
+            startTime = endTime;
+        }
     }
 
     /**
@@ -341,9 +381,11 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
             return rewardPerTokenStored;
         }
         
-        uint256 timeDelta = lastApplicable - lastRewardUpdateTime;
-        // reward per token = stored + (timeDelta * REWARD_RATE * 1e18 / totalStaked)
-        return rewardPerTokenStored + (timeDelta * REWARD_RATE * 1e18 / totalStaked);
+        uint256 rewardAccrued = _rewardBetweenTimestamps(lastRewardUpdateTime, lastApplicable);
+        if (rewardAccrued == 0) {
+            return rewardPerTokenStored;
+        }
+        return rewardPerTokenStored + Math.mulDiv(rewardAccrued, 1e18, totalStaked);
     }
 
     /**
@@ -360,11 +402,22 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     }
 
     /**
-     * @notice Get the current emission rate (TENBIN per second)
+     * @notice Get current emission rate as per-second equivalent
      * @return Rate in raw token units (6 decimals)
      */
-    function getEmissionRate() external pure returns (uint256) {
-        return REWARD_RATE;
+    function getEmissionRate() external view returns (uint256) {
+        if (emissionStartTime == 0 || block.timestamp < emissionStartTime) {
+            return Math.mulDiv(PHASE_ONE_ANNUAL_EMISSION, 1, SECONDS_PER_YEAR);
+        }
+
+        uint256 phaseOneEndTime = emissionStartTime + PHASE_ONE_DURATION;
+        if (block.timestamp < phaseOneEndTime) {
+            return Math.mulDiv(PHASE_ONE_ANNUAL_EMISSION, 1, SECONDS_PER_YEAR);
+        }
+
+        uint256 epoch = (block.timestamp - phaseOneEndTime) / PHASE_TWO_HALVING_PERIOD;
+        uint256 annualEmission = _phaseTwoAnnualEmissionForEpoch(epoch);
+        return Math.mulDiv(annualEmission, 1, SECONDS_PER_YEAR);
     }
 
     /**
@@ -386,7 +439,17 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         if (emissionStartTime == 0) {
             return true; // Not started yet, will be active once first stake happens
         }
-        return block.timestamp < emissionStartTime + EMISSION_DURATION && totalEmitted < MAX_EMISSION;
+        if (totalEmitted >= MAX_EMISSION) {
+            return false;
+        }
+
+        uint256 phaseOneEndTime = emissionStartTime + PHASE_ONE_DURATION;
+        if (block.timestamp < phaseOneEndTime) {
+            return true;
+        }
+
+        uint256 epoch = (block.timestamp - phaseOneEndTime) / PHASE_TWO_HALVING_PERIOD;
+        return _phaseTwoAnnualEmissionForEpoch(epoch) > 0;
     }
 
     /**
@@ -469,13 +532,13 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     /**
      * @dev Creates a new market using a URL-derived platform ID
      * @param url Raw URL string provided by the user
-     * @param initialDownvotes Initial downvotes
-     * @param initialUpvotes Initial upvotes
+     * @param initialX Initial x
+     * @param initialY Initial y
      */
     function createMarket(
         string calldata url,
-        uint256 initialDownvotes,
-        uint256 initialUpvotes
+        uint256 initialX,
+        uint256 initialY
     ) external whenNotPaused nonReentrant {
         // Use default slippage tolerance and derive pageId from URL hash
         if (bytes(url).length == 0) {
@@ -483,20 +546,20 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         }
         bytes32 urlHash = keccak256(bytes(url));
         uint256 pageId = uint256(urlHash);
-        _createMarketWithSlippage(pageId, initialDownvotes, initialUpvotes, DEFAULT_SLIPPAGE_BASIS_POINTS, url, urlHash);
+        _createMarketWithSlippage(pageId, initialX, initialY, DEFAULT_SLIPPAGE_BASIS_POINTS, url, urlHash);
     }
     
     /**
      * @dev Creates a new market with custom slippage tolerance
      * @param url Raw URL string provided by the user
-     * @param initialDownvotes Initial downvotes
-     * @param initialUpvotes Initial upvotes
+     * @param initialX Initial x
+     * @param initialY Initial y
      * @param slippageBasisPoints Maximum acceptable slippage in basis points
      */
     function createMarketWithSlippage(
         string calldata url,
-        uint256 initialDownvotes,
-        uint256 initialUpvotes,
+        uint256 initialX,
+        uint256 initialY,
         uint256 slippageBasisPoints
     ) external whenNotPaused nonReentrant {
         // Derive pageId from URL hash and apply custom slippage
@@ -505,7 +568,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         }
         bytes32 urlHash = keccak256(bytes(url));
         uint256 pageId = uint256(urlHash);
-        _createMarketWithSlippage(pageId, initialDownvotes, initialUpvotes, slippageBasisPoints, url, urlHash);
+        _createMarketWithSlippage(pageId, initialX, initialY, slippageBasisPoints, url, urlHash);
     }
     
     /**
@@ -513,8 +576,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
      */
     function _createMarketWithSlippage(
         uint256 pageId,
-        uint256 initialDownvotes,
-        uint256 initialUpvotes,
+        uint256 initialX,
+        uint256 initialY,
         uint256 slippageBasisPoints,
         string memory url,
         bytes32 urlHash
@@ -528,10 +591,10 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
             revert MarketAlreadyExists();
         }
         
-        _validateCoordinateBounds(initialDownvotes, initialUpvotes);
+        _validateCoordinateBounds(initialX, initialY);
         
-        uint256 totalVotes = initialDownvotes + initialUpvotes;
-        if (!isValidCoordinate(initialDownvotes, initialUpvotes)) {
+        uint256 totalVotes = initialX + initialY;
+        if (!isValidCoordinate(initialX, initialY)) {
             revert InvalidCoordinate();
         }
 
@@ -544,20 +607,20 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
             marketUrlHash[pageId] = urlHash;
         }
         
-        bytes32 coordHash = keccak256(abi.encodePacked(initialDownvotes, initialUpvotes));
+        bytes32 coordHash = keccak256(abi.encodePacked(initialX, initialY));
         if (coordinateToMarket[coordHash] != 0) {
             revert CoordinateOccupied();
         }
         
         // Compute hypotenuse in token units (fixed-point with payment token decimals)
-        uint256 downvotesSquared = _safeMul(initialDownvotes, initialDownvotes);
-        uint256 upvotesSquared = _safeMul(initialUpvotes, initialUpvotes);
-        uint256 sumSquares = _safeAddSquares(downvotesSquared, upvotesSquared);
+        uint256 xSquared = _safeMul(initialX, initialX);
+        uint256 ySquared = _safeMul(initialY, initialY);
+        uint256 sumSquares = _safeAddSquares(xSquared, ySquared);
         // Ensure hypotenuse is within limit without precision loss: sumSquares <= MAX_HYPOTENUSE^2
         if (sumSquares > _safeMul(MAX_HYPOTENUSE, MAX_HYPOTENUSE)) {
             revert HypotenuseTooLarge();
         }
-        uint256 initialHypotenuseScaled = _computeHypotenuseScaled(initialDownvotes, initialUpvotes);
+        uint256 initialHypotenuseScaled = _computeHypotenuseScaled(initialX, initialY);
         uint256 totalPaymentInTokenUnits = _validatePaymentAmount(initialHypotenuseScaled);
         uint256 protocolFee = (totalPaymentInTokenUnits * PROTOCOL_FEE_BASIS_POINTS) / BASIS_POINTS_DENOMINATOR;
         uint256 totalPayment = totalPaymentInTokenUnits + protocolFee;
@@ -583,7 +646,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         
         accumulatedProtocolFees += protocolFee;
         
-        marketCoordinates[pageId] = Coordinate(initialDownvotes, initialUpvotes);
+        marketCoordinates[pageId] = Coordinate(initialX, initialY);
         marketExists[pageId] = true;
         coordinateToMarket[coordHash] = pageId;
         marketCreator[pageId] = msg.sender;
@@ -591,32 +654,32 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         totalMarkets += 1;
         
         voterPositions[pageId][msg.sender] = VoterPosition({
-            upVotes: initialUpvotes,
-            downVotes: initialDownvotes,
+            yVotes: initialY,
+            xVotes: initialX,
             exists: true
         });
         
         // Track cost basis for staking rewards
-        // trustCost = cost of going from (0,0) to (0, initialUpvotes)
-        // distrustCost = cost of going from (0, initialUpvotes) to (initialDownvotes, initialUpvotes)
-        uint256 trustCostPart = _computeHypotenuseScaled(0, initialUpvotes);
-        uint256 distrustCostPart = initialHypotenuseScaled - trustCostPart;
+        // yCost = cost of going from (0,0) to (0, initialY)
+        // xCost = cost of going from (0, initialY) to (initialX, initialY)
+        uint256 yCostPart = _computeHypotenuseScaled(0, initialY);
+        uint256 xCostPart = initialHypotenuseScaled - yCostPart;
         holdings[pageId][msg.sender] = HoldingCosts({
-            trustCost: trustCostPart,
-            distrustCost: distrustCostPart
+            yCost: yCostPart,
+            xCost: xCostPart
         });
         
         // Update global staking state (user's new total stake across all platforms)
-        uint256 newUserTotalStake = userTotalStake[msg.sender] + trustCostPart + distrustCostPart;
+        uint256 newUserTotalStake = userTotalStake[msg.sender] + yCostPart + xCostPart;
         _updateUserStake(msg.sender, newUserTotalStake);
         
-        emit MarketCreated(pageId, msg.sender, initialDownvotes, initialUpvotes, totalVotes);
+        emit MarketCreated(pageId, msg.sender, initialX, initialY, totalVotes);
         if (bytes(url).length > 0) {
             // Emit raw URL for off-chain indexing; hash is stored for uniqueness checks
             emit MarketMetadata(pageId, urlHash, url);
         }
         // For event readability, include integer hypotenuse (floor) in the event payload
-        emit VoterPositionUpdate(pageId, msg.sender, initialUpvotes, initialDownvotes, Math.sqrt(sumSquares));
+        emit VoterPositionUpdate(pageId, msg.sender, initialY, initialX, Math.sqrt(sumSquares));
         emit VoterFirstParticipation(pageId, msg.sender, block.timestamp);
         emit LiquidityAdded(pageId, totalPayment, paymentToken.balanceOf(address(this)));
     }
@@ -624,31 +687,31 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     /**
      * @dev Vote on an existing market by adjusting your position
      * @param pageId The page ID to vote on
-     * @param newDownvotes New downvotes (for the entire market)
-     * @param newUpvotes New upvotes (for the entire market)
+     * @param newX New x (for the entire market)
+     * @param newY New y (for the entire market)
      */
     function voteOnMarket(
         uint256 pageId,
-        uint256 newDownvotes,
-        uint256 newUpvotes
+        uint256 newX,
+        uint256 newY
     ) external whenNotPaused nonReentrant {
-        _voteOnMarketWithSlippage(pageId, newDownvotes, newUpvotes, DEFAULT_SLIPPAGE_BASIS_POINTS);
+        _voteOnMarketWithSlippage(pageId, newX, newY, DEFAULT_SLIPPAGE_BASIS_POINTS);
     }
     
     /**
      * @dev Vote on market with custom slippage tolerance
      * @param pageId The page ID to vote on
-     * @param newDownvotes New downvotes (for the entire market)
-     * @param newUpvotes New upvotes (for the entire market)
+     * @param newX New x (for the entire market)
+     * @param newY New y (for the entire market)
      * @param slippageBasisPoints Maximum acceptable slippage in basis points
      */
     function voteOnMarketWithSlippage(
         uint256 pageId,
-        uint256 newDownvotes,
-        uint256 newUpvotes,
+        uint256 newX,
+        uint256 newY,
         uint256 slippageBasisPoints
     ) external whenNotPaused nonReentrant {
-        _voteOnMarketWithSlippage(pageId, newDownvotes, newUpvotes, slippageBasisPoints);
+        _voteOnMarketWithSlippage(pageId, newX, newY, slippageBasisPoints);
     }
     
     /**
@@ -656,11 +719,11 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
      */
     function _voteOnMarketWithSlippage(
         uint256 pageId,
-        uint256 newDownvotes,
-        uint256 newUpvotes,
+        uint256 newX,
+        uint256 newY,
         uint256 slippageBasisPoints
     ) internal {
-        // Single-axis move: only one coordinate can change per transaction
+        // Multi-axis move allowed: disallow only no-op updates
         if (slippageBasisPoints > BASIS_POINTS_DENOMINATOR) {
             revert InvalidSlippage();
         }
@@ -669,27 +732,27 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
             revert MarketDoesNotExist();
         }
         
-        _validateCoordinateBounds(newDownvotes, newUpvotes);
+        _validateCoordinateBounds(newX, newY);
 
         Coordinate memory current = marketCoordinates[pageId];
-        bool downvotesChanged = newDownvotes != current.downvotes;
-        bool upvotesChanged = newUpvotes != current.upvotes;
-        if (downvotesChanged == upvotesChanged) {
-            // Disallow no-op and diagonal moves (must change exactly one axis)
+        bool xChanged = newX != current.x;
+        bool yChanged = newY != current.y;
+        if (!xChanged && !yChanged) {
+            // Disallow no-op moves
             revert InvalidCoordinate();
         }
         
-        if (!isValidCoordinate(newDownvotes, newUpvotes)) {
+        if (!isValidCoordinate(newX, newY)) {
             revert InvalidCoordinate();
         }
         
-        bytes32 newCoordHash = keccak256(abi.encodePacked(newDownvotes, newUpvotes));
+        bytes32 newCoordHash = keccak256(abi.encodePacked(newX, newY));
         uint256 occupyingMarket = coordinateToMarket[newCoordHash];
         if (occupyingMarket != 0 && occupyingMarket != pageId) {
             revert CoordinateOccupied();
         }
         
-        _processVoteUpdate(pageId, newDownvotes, newUpvotes, newCoordHash, slippageBasisPoints);
+        _processVoteUpdate(pageId, newX, newY, newCoordHash, slippageBasisPoints);
     }
     
     /**
@@ -697,8 +760,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
      */
     function _processVoteUpdate(
         uint256 pageId,
-        uint256 newDownvotes,
-        uint256 newUpvotes,
+        uint256 newX,
+        uint256 newY,
         bytes32 newCoordHash,
         uint256 slippageBasisPoints
     ) internal {
@@ -708,17 +771,17 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         
         bool isFirstTimeVoter = !voterPos.exists;
         
-        int256 upvotesDelta = int256(newUpvotes) - int256(current.upvotes);
-        int256 downvotesDelta = int256(newDownvotes) - int256(current.downvotes);
+        int256 yDelta = int256(newY) - int256(current.y);
+        int256 xDelta = int256(newX) - int256(current.x);
         
-        uint256 currentDownvotesSquared = _safeMul(current.downvotes, current.downvotes);
-        uint256 currentUpvotesSquared = _safeMul(current.upvotes, current.upvotes);
-        uint256 currentSumSquares = _safeAddSquares(currentDownvotesSquared, currentUpvotesSquared);
+        uint256 currentXSquared = _safeMul(current.x, current.x);
+        uint256 currentYSquared = _safeMul(current.y, current.y);
+        uint256 currentSumSquares = _safeAddSquares(currentXSquared, currentYSquared);
         uint256 currentHypotenuseInt = Math.sqrt(currentSumSquares);
         
-        uint256 newDownvotesSquared = _safeMul(newDownvotes, newDownvotes);
-        uint256 newUpvotesSquared = _safeMul(newUpvotes, newUpvotes);
-        uint256 newSumSquares = _safeAddSquares(newDownvotesSquared, newUpvotesSquared);
+        uint256 newXSquared = _safeMul(newX, newX);
+        uint256 newYSquared = _safeMul(newY, newY);
+        uint256 newSumSquares = _safeAddSquares(newXSquared, newYSquared);
         uint256 newHypotenuseInt = Math.sqrt(newSumSquares);
         
         // Ensure hypotenuse is within limit using exact squared comparison
@@ -726,65 +789,65 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
             revert HypotenuseTooLarge();
         }
         // Compute scaled hypotenuse values (fixed-point with token decimals)
-        uint256 currentHypotenuseScaled = _computeHypotenuseScaled(current.downvotes, current.upvotes);
-        uint256 newHypotenuseScaled = _computeHypotenuseScaled(newDownvotes, newUpvotes);
+        uint256 currentHypotenuseScaled = _computeHypotenuseScaled(current.x, current.y);
+        uint256 newHypotenuseScaled = _computeHypotenuseScaled(newX, newY);
         int256 hypotenuseChangeScaled = int256(newHypotenuseScaled) - int256(currentHypotenuseScaled);
         
         uint256 protocolFee;
         
         // Track old cost basis before changes for stake update
         HoldingCosts storage userHoldings = holdings[pageId][msg.sender];
-        uint256 oldPlatformCost = userHoldings.trustCost + userHoldings.distrustCost;
+        uint256 oldPlatformCost = userHoldings.yCost + userHoldings.xCost;
         
         if (hypotenuseChangeScaled > 0) {
             protocolFee = _processBuyVotesWithSlippage(
                 pageId,
                 uint256(hypotenuseChangeScaled),
-                upvotesDelta,
-                downvotesDelta,
+                yDelta,
+                xDelta,
                 voterPos,
                 slippageBasisPoints
             );
             totalVoteVolume[pageId] += uint256(hypotenuseChangeScaled);
-            // Single-axis: only one of upvotesDelta/downvotesDelta can be positive
-            if (upvotesDelta > 0) {
-                uint256 trustBuy = uint256(upvotesDelta);
-                uint256 trustPart = _computeHypotenuseScaled(current.downvotes, current.upvotes + trustBuy) - _computeHypotenuseScaled(current.downvotes, current.upvotes);
-                userHoldings.trustCost += trustPart;
-            } else if (downvotesDelta > 0) {
-                uint256 distrustBuy = uint256(downvotesDelta);
-                uint256 distrustPart = _computeHypotenuseScaled(current.downvotes + distrustBuy, current.upvotes) - _computeHypotenuseScaled(current.downvotes, current.upvotes);
-                userHoldings.distrustCost += distrustPart;
+            // Update cost basis by decomposing path into y leg then x leg
+            uint256 yBuy = yDelta > 0 ? uint256(yDelta) : 0;
+            uint256 xBuy = xDelta > 0 ? uint256(xDelta) : 0;
+            if (yDelta > 0) {
+                uint256 yPart = _computeHypotenuseScaled(current.x, current.y + yBuy) - _computeHypotenuseScaled(current.x, current.y);
+                userHoldings.yCost += yPart;
+            }
+            if (xDelta > 0) {
+                uint256 xPart = _computeHypotenuseScaled(current.x + xBuy, current.y + yBuy) - _computeHypotenuseScaled(current.x, current.y + yBuy);
+                userHoldings.xCost += xPart;
             }
         } else if (hypotenuseChangeScaled < 0) {
             // Before sell, compute previous holdings for pro-rata reduction
-            uint256 prevTrust = voterPos.upVotes;
-            uint256 prevDistrust = voterPos.downVotes;
-            uint256 trustSell = upvotesDelta < 0 ? uint256(-upvotesDelta) : 0;
-            uint256 distrustSell = downvotesDelta < 0 ? uint256(-downvotesDelta) : 0;
+            uint256 prevY = voterPos.yVotes;
+            uint256 prevX = voterPos.xVotes;
+            uint256 ySell = yDelta < 0 ? uint256(-yDelta) : 0;
+            uint256 xSell = xDelta < 0 ? uint256(-xDelta) : 0;
 
             protocolFee = _processSellVotesWithSlippage(
                 pageId,
                 uint256(-hypotenuseChangeScaled),
-                upvotesDelta,
-                downvotesDelta,
+                yDelta,
+                xDelta,
                 voterPos,
                 slippageBasisPoints
             );
             // Pro-rata reduce cost basis for sold units
-            if (trustSell > 0 && prevTrust > 0) {
-                userHoldings.trustCost = userHoldings.trustCost * (prevTrust - trustSell) / prevTrust;
+            if (ySell > 0 && prevY > 0) {
+                userHoldings.yCost = userHoldings.yCost * (prevY - ySell) / prevY;
             }
-            if (distrustSell > 0 && prevDistrust > 0) {
-                userHoldings.distrustCost = userHoldings.distrustCost * (prevDistrust - distrustSell) / prevDistrust;
+            if (xSell > 0 && prevX > 0) {
+                userHoldings.xCost = userHoldings.xCost * (prevX - xSell) / prevX;
             }
         } else {
-            // Same hypotenuse moves are not possible with single-axis constraint
-            revert InvalidCoordinate();
+            _processRebalance(yDelta, xDelta, voterPos);
         }
         
         // Update global staking state with new cost basis
-        uint256 newPlatformCost = userHoldings.trustCost + userHoldings.distrustCost;
+        uint256 newPlatformCost = userHoldings.yCost + userHoldings.xCost;
         if (newPlatformCost != oldPlatformCost) {
             // Calculate user's new total stake across all platforms
             uint256 oldUserTotalStake = userTotalStake[msg.sender];
@@ -799,19 +862,19 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         
         voterPos.exists = true;
         
-        bytes32 oldCoordHash = keccak256(abi.encodePacked(current.downvotes, current.upvotes));
+        bytes32 oldCoordHash = keccak256(abi.encodePacked(current.x, current.y));
         delete coordinateToMarket[oldCoordHash];
         coordinateToMarket[newCoordHash] = pageId;
         
-        marketCoordinates[pageId] = Coordinate(newDownvotes, newUpvotes);
+        marketCoordinates[pageId] = Coordinate(newX, newY);
         
         emit MarketVoteUpdate(
             pageId,
             msg.sender,
-            current.downvotes,
-            current.upvotes,
-            newDownvotes,
-            newUpvotes,
+            current.x,
+            current.y,
+            newX,
+            newY,
             int256(newHypotenuseInt) - int256(currentHypotenuseInt),
             protocolFee
         );
@@ -819,15 +882,45 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         emit VoterPositionUpdate(
             pageId, 
             msg.sender, 
-            voterPos.upVotes, 
-            voterPos.downVotes, 
+            voterPos.yVotes, 
+            voterPos.xVotes, 
             newHypotenuseInt
         );
         
-        emit CoordinateChanged(pageId, oldCoordHash, newCoordHash, current.downvotes, current.upvotes, newDownvotes, newUpvotes);
+        emit CoordinateChanged(pageId, oldCoordHash, newCoordHash, current.x, current.y, newX, newY);
         
         if (isFirstTimeVoter) {
             emit VoterFirstParticipation(pageId, msg.sender, block.timestamp);
+        }
+    }
+
+    /**
+     * @dev Process rebalancing (same hypotenuse)
+     */
+    function _processRebalance(
+        int256 yDelta,
+        int256 xDelta,
+        VoterPosition storage voterPos
+    ) internal {
+        if (yDelta != 0 || xDelta != 0) {
+            if (yDelta < 0 && voterPos.yVotes < uint256(-yDelta)) {
+                revert InsufficientVotesToSell();
+            }
+            if (xDelta < 0 && voterPos.xVotes < uint256(-xDelta)) {
+                revert InsufficientVotesToSell();
+            }
+
+            if (yDelta > 0) {
+                voterPos.yVotes += uint256(yDelta);
+            } else if (yDelta < 0) {
+                voterPos.yVotes -= uint256(-yDelta);
+            }
+
+            if (xDelta > 0) {
+                voterPos.xVotes += uint256(xDelta);
+            } else if (xDelta < 0) {
+                voterPos.xVotes -= uint256(-xDelta);
+            }
         }
     }
 
@@ -837,8 +930,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     function _processBuyVotesWithSlippage(
         uint256 pageId,
         uint256 hypotenuseIncrease,
-        int256 upvotesDelta,
-        int256 downvotesDelta,
+        int256 yDelta,
+        int256 xDelta,
         VoterPosition storage voterPos,
         uint256 slippageBasisPoints
     ) internal returns (uint256 protocolFee) {
@@ -873,24 +966,24 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         
         accumulatedProtocolFees += protocolFee;
         
-        if (upvotesDelta > 0) {
-            voterPos.upVotes += uint256(upvotesDelta);
-        } else if (upvotesDelta < 0) {
-            uint256 reductionAmount = uint256(-upvotesDelta);
-            if (voterPos.upVotes < reductionAmount) {
+        if (yDelta > 0) {
+            voterPos.yVotes += uint256(yDelta);
+        } else if (yDelta < 0) {
+            uint256 reductionAmount = uint256(-yDelta);
+            if (voterPos.yVotes < reductionAmount) {
                 revert InsufficientVotesToSell();
             }
-            voterPos.upVotes -= reductionAmount;
+            voterPos.yVotes -= reductionAmount;
         }
         
-        if (downvotesDelta > 0) {
-            voterPos.downVotes += uint256(downvotesDelta);
-        } else if (downvotesDelta < 0) {
-            uint256 reductionAmount = uint256(-downvotesDelta);
-            if (voterPos.downVotes < reductionAmount) {
+        if (xDelta > 0) {
+            voterPos.xVotes += uint256(xDelta);
+        } else if (xDelta < 0) {
+            uint256 reductionAmount = uint256(-xDelta);
+            if (voterPos.xVotes < reductionAmount) {
                 revert InsufficientVotesToSell();
             }
-            voterPos.downVotes -= reductionAmount;
+            voterPos.xVotes -= reductionAmount;
         }
         
         emit LiquidityAdded(pageId, totalPayment, paymentToken.balanceOf(address(this)));
@@ -902,30 +995,30 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     function _processSellVotesWithSlippage(
         uint256 pageId,
         uint256 hypotenuseDecrease,
-        int256 upvotesDelta,
-        int256 downvotesDelta,
+        int256 yDelta,
+        int256 xDelta,
         VoterPosition storage voterPos,
         uint256 slippageBasisPoints
     ) internal returns (uint256 protocolFee) {
         // Sell path: validate holdings, refund USDC minus fee
-        if (upvotesDelta < 0) {
-            uint256 sellAmount = uint256(-upvotesDelta);
-            if (voterPos.upVotes < sellAmount) {
+        if (yDelta < 0) {
+            uint256 sellAmount = uint256(-yDelta);
+            if (voterPos.yVotes < sellAmount) {
                 revert InsufficientVotesToSell();
             }
-            voterPos.upVotes -= sellAmount;
-        } else if (upvotesDelta > 0) {
-            voterPos.upVotes += uint256(upvotesDelta);
+            voterPos.yVotes -= sellAmount;
+        } else if (yDelta > 0) {
+            voterPos.yVotes += uint256(yDelta);
         }
         
-        if (downvotesDelta < 0) {
-            uint256 sellAmount = uint256(-downvotesDelta);
-            if (voterPos.downVotes < sellAmount) {
+        if (xDelta < 0) {
+            uint256 sellAmount = uint256(-xDelta);
+            if (voterPos.xVotes < sellAmount) {
                 revert InsufficientVotesToSell();
             }
-            voterPos.downVotes -= sellAmount;
-        } else if (downvotesDelta > 0) {
-            voterPos.downVotes += uint256(downvotesDelta);
+            voterPos.xVotes -= sellAmount;
+        } else if (xDelta > 0) {
+            voterPos.xVotes += uint256(xDelta);
         }
         
         uint256 refundAmount = _validatePaymentAmount(hypotenuseDecrease);
@@ -964,27 +1057,27 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
      * @dev Get voter's position in a market
      * @param pageId The page ID
      * @param voter The voter's address
-     * @return upVotes Number of upvotes owned
-     * @return downVotes Number of downvotes owned
+     * @return yVotes Number of y votes owned
+     * @return xVotes Number of x votes owned
      * @return exists Whether voter has a position
      */
     function getVoterPosition(
         uint256 pageId,
         address voter
     ) external view returns (
-        uint256 upVotes,
-        uint256 downVotes,
+        uint256 yVotes,
+        uint256 xVotes,
         bool exists
     ) {
         VoterPosition memory pos = voterPositions[pageId][voter];
-        return (pos.upVotes, pos.downVotes, pos.exists);
+        return (pos.yVotes, pos.xVotes, pos.exists);
     }
     
     /**
      * @dev Get market state and page score
      * @param pageId The page ID to query
-     * @return downvotes Downvotes
-     * @return upvotes Upvotes
+     * @return x X coordinate
+     * @return y Y coordinate
      * @return pageScore Page score (0 to 1e18)
      * @return totalVotes Total current votes
      */
@@ -992,8 +1085,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         external 
         view 
         returns (
-            uint256 downvotes,
-            uint256 upvotes,
+            uint256 x,
+            uint256 y,
             uint256 pageScore,
             uint256 totalVotes
         ) 
@@ -1003,10 +1096,10 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         }
         
         Coordinate memory coord = marketCoordinates[pageId];
-        downvotes = coord.downvotes;
-        upvotes = coord.upvotes;
-        totalVotes = downvotes + upvotes;
-        pageScore = calculatePageScore(downvotes, upvotes);
+        x = coord.x;
+        y = coord.y;
+        totalVotes = x + y;
+        pageScore = calculatePageScore(x, y);
     }
     
     /**
@@ -1026,46 +1119,6 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         return totalBalance > accumulatedProtocolFees ? totalBalance - accumulatedProtocolFees : 0;
     }
 
-    /**
-     * @dev Heuristic minimum TVL estimate (first-quadrant lattice packing)
-     * @notice minTVL ≈ (4 / (3 * sqrt(pi))) * n^(3/2), with n = totalMarkets
-     */
-    function minimumFloatEstimate() public view returns (uint256) {
-        uint256 n = totalMarkets;
-        if (n == 0) {
-            return 0;
-        }
-        // 4 / (3 * sqrt(pi)) ≈ 0.752252778063675
-        uint256 factorWad = 752252778063675000; // 1e18 precision
-        uint256 sqrtN = Math.sqrt(n);
-        uint256 nTimesSqrtN = _safeMul(n, sqrtN);
-        return (factorWad * nTimesSqrtN) / 1e18;
-    }
-
-    /**
-     * @dev Owner can withdraw from liquidity up to the min-float estimate (cumulative)
-     */
-    function withdrawOwnerFloat(uint256 amount) external onlyOwner nonReentrant {
-        uint256 maxWithdrawable = minimumFloatEstimate();
-        if (totalOwnerFloatWithdrawn + amount > maxWithdrawable) {
-            revert FloatWithdrawExceeded();
-        }
-
-        uint256 available = paymentToken.balanceOf(address(this)) > accumulatedProtocolFees
-            ? paymentToken.balanceOf(address(this)) - accumulatedProtocolFees
-            : 0;
-        if (amount > available) {
-            revert InvalidFeeAmount();
-        }
-
-        totalOwnerFloatWithdrawn += amount;
-        if (!paymentToken.transfer(ownerFeeRecipient, amount)) {
-            revert PaymentFailed();
-        }
-
-        emit OwnerFloatWithdrawn(ownerFeeRecipient, amount, totalOwnerFloatWithdrawn, maxWithdrawable);
-    }
-    
     /**
      * @dev Get protocol fee percentage in basis points
      * @return feeBasisPoints The protocol fee in basis points
@@ -1092,29 +1145,29 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     
     /**
      * @dev Calculate expected payment with slippage for buying votes
-     * @param currentDownvotes Current downvotes coordinate
-     * @param currentUpvotes Current upvotes coordinate
-     * @param newDownvotes Target downvotes coordinate
-     * @param newUpvotes Target upvotes coordinate
+     * @param currentX Current x coordinate
+     * @param currentY Current y coordinate
+     * @param newX Target x coordinate
+     * @param newY Target y coordinate
      * @param slippageBasisPoints Slippage tolerance in basis points
      * @return expectedPayment Expected payment amount
      * @return maxPaymentWithSlippage Maximum payment with slippage
      */
     function calculatePaymentWithSlippage(
-        uint256 currentDownvotes,
-        uint256 currentUpvotes,
-        uint256 newDownvotes,
-        uint256 newUpvotes,
+        uint256 currentX,
+        uint256 currentY,
+        uint256 newX,
+        uint256 newY,
         uint256 slippageBasisPoints
     ) external view returns (
         uint256 expectedPayment,
         uint256 maxPaymentWithSlippage
     ) {
-        _validateCoordinateBounds(currentDownvotes, currentUpvotes);
-        _validateCoordinateBounds(newDownvotes, newUpvotes);
+        _validateCoordinateBounds(currentX, currentY);
+        _validateCoordinateBounds(newX, newY);
         
-        uint256 currentHypotenuseScaled = _computeHypotenuseScaled(currentDownvotes, currentUpvotes);
-        uint256 newHypotenuseScaled = _computeHypotenuseScaled(newDownvotes, newUpvotes);
+        uint256 currentHypotenuseScaled = _computeHypotenuseScaled(currentX, currentY);
+        uint256 newHypotenuseScaled = _computeHypotenuseScaled(newX, newY);
         
         if (newHypotenuseScaled <= currentHypotenuseScaled) {
             return (0, 0);
@@ -1129,29 +1182,29 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     
     /**
      * @dev Calculate expected refund with slippage for selling votes
-     * @param currentDownvotes Current downvotes coordinate
-     * @param currentUpvotes Current upvotes coordinate
-     * @param newDownvotes Target downvotes coordinate
-     * @param newUpvotes Target upvotes coordinate
+     * @param currentX Current x coordinate
+     * @param currentY Current y coordinate
+     * @param newX Target x coordinate
+     * @param newY Target y coordinate
      * @param slippageBasisPoints Slippage tolerance in basis points
      * @return expectedRefund Expected refund amount
      * @return minRefundWithSlippage Minimum refund with slippage
      */
     function calculateRefundWithSlippage(
-        uint256 currentDownvotes,
-        uint256 currentUpvotes,
-        uint256 newDownvotes,
-        uint256 newUpvotes,
+        uint256 currentX,
+        uint256 currentY,
+        uint256 newX,
+        uint256 newY,
         uint256 slippageBasisPoints
     ) external view returns (
         uint256 expectedRefund,
         uint256 minRefundWithSlippage
     ) {
-        _validateCoordinateBounds(currentDownvotes, currentUpvotes);
-        _validateCoordinateBounds(newDownvotes, newUpvotes);
+        _validateCoordinateBounds(currentX, currentY);
+        _validateCoordinateBounds(newX, newY);
         
-        uint256 currentHypotenuseScaled = _computeHypotenuseScaled(currentDownvotes, currentUpvotes);
-        uint256 newHypotenuseScaled = _computeHypotenuseScaled(newDownvotes, newUpvotes);
+        uint256 currentHypotenuseScaled = _computeHypotenuseScaled(currentX, currentY);
+        uint256 newHypotenuseScaled = _computeHypotenuseScaled(newX, newY);
         
         if (newHypotenuseScaled >= currentHypotenuseScaled) {
             return (0, 0);
@@ -1203,46 +1256,50 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     
     /**
      * @dev Calculate page score for given coordinates
-     * @param downvotes Downvotes
-     * @param upvotes Upvotes
-     * @return Trust score scaled by 1e18
+     * @param x X coordinate
+     * @param y Y coordinate
+     * @return Y score scaled by 1e18
      */
-    function calculatePageScore(uint256 downvotes, uint256 upvotes) public pure returns (uint256) {
-        if (downvotes == 0 && upvotes == 0) {
+    function calculatePageScore(uint256 x, uint256 y) public pure returns (uint256) {
+        if (x == 0 && y == 0) {
             return 0;
         }
         
-        if (downvotes > MAX_COORDINATE_VALUE || upvotes > MAX_COORDINATE_VALUE) {
+        if (x > MAX_COORDINATE_VALUE || y > MAX_COORDINATE_VALUE) {
             revert CoordinateTooLarge();
         }
         
-        uint256 downvotesSquared = _safeMul(downvotes, downvotes);
-        uint256 upvotesSquared = _safeMul(upvotes, upvotes);
-        uint256 sumSquares = _safeAddSquares(downvotesSquared, upvotesSquared);
+        uint256 xSquared = _safeMul(x, x);
+        uint256 ySquared = _safeMul(y, y);
+        uint256 sumSquares = _safeAddSquares(xSquared, ySquared);
         
-        return (upvotesSquared * 1e18) / sumSquares;
+        return (ySquared * 1e18) / sumSquares;
     }
     
     /**
-     * @dev Check if coordinates are valid (positive, within bounds, hypotenuse within max)
-     * @param downvotes The downvotes coordinate
-     * @param upvotes The upvotes coordinate
+     * @dev Check if coordinates are valid (positive, within bounds, integer hypotenuse within max)
+     * @param x The x coordinate
+     * @param y The y coordinate
      * @return bool True if valid
      */
-    function isValidCoordinate(uint256 downvotes, uint256 upvotes) public pure returns (bool) {
-        if (downvotes == 0 || upvotes == 0) {
+    function isValidCoordinate(uint256 x, uint256 y) public pure returns (bool) {
+        if (x == 0 || y == 0) {
             return false;
         }
         
-        if (downvotes > MAX_COORDINATE_VALUE || upvotes > MAX_COORDINATE_VALUE) {
+        if (x > MAX_COORDINATE_VALUE || y > MAX_COORDINATE_VALUE) {
             return false;
         }
         
-        uint256 downvotesSquared = _safeMul(downvotes, downvotes);
-        uint256 upvotesSquared = _safeMul(upvotes, upvotes);
-        uint256 sumSquares = _safeAddSquares(downvotesSquared, upvotesSquared);
-        // Valid if hypotenuse^2 <= MAX_HYPOTENUSE^2
-        return sumSquares <= _safeMul(MAX_HYPOTENUSE, MAX_HYPOTENUSE);
+        uint256 xSquared = _safeMul(x, x);
+        uint256 ySquared = _safeMul(y, y);
+        uint256 sumSquares = _safeAddSquares(xSquared, ySquared);
+        if (sumSquares > _safeMul(MAX_HYPOTENUSE, MAX_HYPOTENUSE)) {
+            return false;
+        }
+        uint256 c = Math.sqrt(sumSquares);
+        // Pythagorean triple constraint: hypotenuse must be an exact positive integer
+        return c > 0 && _safeMul(c, c) == sumSquares;
     }
     
     /**
@@ -1418,11 +1475,11 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     
     /**
      * @dev Validate coordinate bounds
-     * @param downvotes Downvotes coordinate
-     * @param upvotes Upvotes coordinate
+     * @param x X coordinate
+     * @param y Y coordinate
      */
-    function _validateCoordinateBounds(uint256 downvotes, uint256 upvotes) private pure {
-        if (downvotes > MAX_COORDINATE_VALUE || upvotes > MAX_COORDINATE_VALUE) {
+    function _validateCoordinateBounds(uint256 x, uint256 y) private pure {
+        if (x > MAX_COORDINATE_VALUE || y > MAX_COORDINATE_VALUE) {
             revert CoordinateTooLarge();
         }
     }
@@ -1430,10 +1487,10 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     /**
      * @dev Compute hypotenuse scaled to the payment token decimals (floor)
      */
-    function _computeHypotenuseScaled(uint256 downvotes, uint256 upvotes) private view returns (uint256) {
-        uint256 downvotesSquared = _safeMul(downvotes, downvotes);
-        uint256 upvotesSquared = _safeMul(upvotes, upvotes);
-        uint256 sumSquares = _safeAddSquares(downvotesSquared, upvotesSquared);
+    function _computeHypotenuseScaled(uint256 x, uint256 y) private view returns (uint256) {
+        uint256 xSquared = _safeMul(x, x);
+        uint256 ySquared = _safeMul(y, y);
+        uint256 sumSquares = _safeAddSquares(xSquared, ySquared);
         uint256 d = paymentTokenDecimals;
         uint256 d2 = _safeMul(d, d);
         uint256 scaledSumSquares = _safeMul(sumSquares, d2);
