@@ -6,14 +6,14 @@ const REWARD_TOKEN_ADDRESS = process.env.REWARD_TOKEN_TENBIN || "";
 
 async function main() {
   console.log("=================================");
-  console.log("BASE MAINNET DEPLOYMENT");
+  console.log("ETHEREUM MAINNET DEPLOYMENT");
   console.log("=================================\n");
 
-  // Verify we're on Base mainnet
+  // Verify we're on Ethereum mainnet
   const chainId = (await ethers.provider.getNetwork()).chainId;
-  if (chainId !== 8453n) {
-    console.error("❌ ERROR: Not connected to Base Mainnet!");
-    console.error(`Current chain ID: ${chainId}, expected: 8453`);
+  if (chainId !== 1n) {
+    console.error("❌ ERROR: Not connected to Ethereum Mainnet!");
+    console.error(`Current chain ID: ${chainId}, expected: 1`);
     process.exit(1);
   }
 
@@ -22,7 +22,7 @@ async function main() {
   
   console.log("📋 Deployment Configuration:");
   console.log("----------------------------");
-  console.log("Network: Base Mainnet");
+  console.log("Network: Ethereum Mainnet");
   console.log("Deployer:", deployer.address);
   console.log("Balance:", ethers.formatEther(balance), "ETH");
   console.log("USDC Address:", PAYMENT_TOKEN_ADDRESS || "(required)");
@@ -46,7 +46,7 @@ async function main() {
   }
 
   if (process.env.DEPLOY_TENBIN === "true" || !REWARD_TOKEN_ADDRESS) {
-    console.log("\nDeploying TENBINIUM token on Base mainnet...");
+    console.log("\nDeploying TENBINIUM token on Ethereum mainnet...");
     const TenbinToken = await ethers.getContractFactory("TenbinToken");
     tenbiniumInstance = await TenbinToken.deploy(deployer.address);
     await tenbiniumInstance.waitForDeployment();
@@ -116,8 +116,8 @@ async function main() {
     // Save deployment info
     const fs = require("fs");
     const deploymentInfo = {
-      network: "base",
-      chainId: 8453,
+      network: "mainnet",
+      chainId: 1,
       contracts: {
         PythagoreanMarketMaker: proxyAddress,
         Implementation: implementationAddress,
@@ -128,7 +128,7 @@ async function main() {
       deploymentBlock: await ethers.provider.getBlockNumber(),
       timestamp: new Date().toISOString(),
       gasPrice: (await ethers.provider.getFeeData()).gasPrice?.toString(),
-      notes: "Base Mainnet deployment with USDC payments and TENBINIUM rewards"
+      notes: "Ethereum Mainnet deployment with USDC payments and TENBINIUM rewards"
     };
     
     // Ensure deployments directory exists
@@ -136,7 +136,7 @@ async function main() {
       fs.mkdirSync("deployments");
     }
     
-    const deploymentPath = `deployments/deployment-base-mainnet-${Date.now()}.json`;
+    const deploymentPath = `deployments/deployment-eth-mainnet-${Date.now()}.json`;
     fs.writeFileSync(deploymentPath, JSON.stringify(deploymentInfo, null, 2));
     
     console.log("\n✅ Deployment info saved to:", deploymentPath);
@@ -145,15 +145,15 @@ async function main() {
     console.log("🎉 DEPLOYMENT SUCCESSFUL!");
     console.log("=================================");
     console.log("\n📝 Next Steps:");
-    console.log("1. Verify the proxy contract on Basescan:");
-    console.log(`   npx hardhat verify --network base ${proxyAddress} ${paymentTokenAddress} ${rewardTokenAddress}`);
+    console.log("1. Verify the proxy contract on Etherscan:");
+    console.log(`   npx hardhat verify --network mainnet ${proxyAddress} ${paymentTokenAddress} ${rewardTokenAddress}`);
     console.log("\n2. Verify the implementation contract:");
-    console.log(`   npx hardhat verify --network base ${implementationAddress}`);
+    console.log(`   npx hardhat verify --network mainnet ${implementationAddress}`);
     console.log("\n3. Test with a small market creation");
     console.log("\n4. Transfer ownership to multisig if applicable");
     
-    console.log("\n🔗 View on Basescan:");
-    console.log(`   https://basescan.org/address/${proxyAddress}`);
+    console.log("\n🔗 View on Etherscan:");
+    console.log(`   https://etherscan.io/address/${proxyAddress}`);
     
   } catch (error) {
     console.error("\n❌ Deployment failed:", error);

@@ -11,12 +11,12 @@
     "test:edge": "forge test --match-path test/EdgeCases.t.sol",
     "test:security": "forge test --match-path test/Security.t.sol",
     "deploy": "hardhat run scripts/deploy-proxy-only.js --network localhost",
-    "deploy:sepolia": "hardhat run scripts/deploy-proxy-only.js --network base-sepolia",
-    "deploy:mainnet": "hardhat run scripts/deploy-mainnet.js --network base",
+    "deploy:sepolia": "hardhat run scripts/deploy-proxy-only.js --network sepolia",
+    "deploy:mainnet": "hardhat run scripts/deploy-mainnet.js --network mainnet",
     "node": "hardhat node --hostname 0.0.0.0",
     "check-balance": "hardhat run scripts/check-balance.js --network localhost",
-    "check-balance:sepolia": "hardhat run scripts/check-balance.js --network base-sepolia",
-    "check-balance:mainnet": "hardhat run scripts/check-balance.js --network base"
+    "check-balance:sepolia": "hardhat run scripts/check-balance.js --network sepolia",
+    "check-balance:mainnet": "hardhat run scripts/check-balance.js --network mainnet"
   },
   "keywords": ["blockchain", "ethereum", "base", "smart-contracts", "reputation", "tenbin", "yield"],
   "author": "clwsqc and rtedwardchen",

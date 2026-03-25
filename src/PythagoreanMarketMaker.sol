@@ -79,6 +79,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     
     uint256 public accumulatedProtocolFees;
     uint256 public totalMarkets; // total entities created
+    uint256 public totalC; // Global TVL proxy: sum of page hypotenuse values
     
     mapping(uint256 => Coordinate) public marketCoordinates;
     mapping(uint256 => bool) public marketExists;
@@ -129,6 +130,12 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     
     // Upgrade control
     bool public upgradesDisabled;  // Once true, contract cannot be upgraded (one-way switch)
+    
+    // Puzzle metrics (derived from qualifying transitions)
+    uint256 public currentM;
+    uint256 public currentN;
+    uint256 public maxM;
+    uint256 public maxN;
     
     // Events
     event MarketCreated(
@@ -245,6 +252,18 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         uint256 previousStake,
         uint256 newStake,
         uint256 totalStakedAfter
+    );
+    
+    event PuzzleMetricsUpdated(
+        uint256 indexed pageId,
+        uint256 oldC,
+        uint256 newC,
+        uint256 totalCBefore,
+        uint256 totalCAfter,
+        uint256 currentM,
+        uint256 currentN,
+        uint256 maxM,
+        uint256 maxN
     );
     
     // Custom errors for gas-efficient reverts
@@ -652,6 +671,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         marketCreator[pageId] = msg.sender;
         totalVoteVolume[pageId] = totalVotes;
         totalMarkets += 1;
+        totalC += Math.sqrt(sumSquares);
         
         voterPositions[pageId][msg.sender] = VoterPosition({
             yVotes: initialY,
@@ -682,6 +702,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         emit VoterPositionUpdate(pageId, msg.sender, initialY, initialX, Math.sqrt(sumSquares));
         emit VoterFirstParticipation(pageId, msg.sender, block.timestamp);
         emit LiquidityAdded(pageId, totalPayment, paymentToken.balanceOf(address(this)));
+        
+        _updatePuzzleMetrics(pageId, 0, Math.sqrt(sumSquares));
     }
     
     /**
@@ -862,6 +884,12 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         
         voterPos.exists = true;
         
+        if (newHypotenuseInt > currentHypotenuseInt) {
+            totalC += (newHypotenuseInt - currentHypotenuseInt);
+        } else if (newHypotenuseInt < currentHypotenuseInt) {
+            totalC -= (currentHypotenuseInt - newHypotenuseInt);
+        }
+        
         bytes32 oldCoordHash = keccak256(abi.encodePacked(current.x, current.y));
         delete coordinateToMarket[oldCoordHash];
         coordinateToMarket[newCoordHash] = pageId;
@@ -892,6 +920,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         if (isFirstTimeVoter) {
             emit VoterFirstParticipation(pageId, msg.sender, block.timestamp);
         }
+        
+        _updatePuzzleMetrics(pageId, currentHypotenuseInt, newHypotenuseInt);
     }
 
     /**
@@ -1495,5 +1525,49 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         uint256 d2 = _safeMul(d, d);
         uint256 scaledSumSquares = _safeMul(sumSquares, d2);
         return Math.sqrt(scaledSumSquares);
+    }
+    
+    /**
+     * @dev Update current/max puzzle metrics when transition satisfies delta=n^2 and C'=m^2
+     */
+    function _updatePuzzleMetrics(uint256 pageId, uint256 oldC, uint256 newC) private {
+        uint256 totalCAfter = totalC;
+        uint256 totalCBefore;
+        if (newC >= oldC) {
+            totalCBefore = totalCAfter - (newC - oldC);
+        } else {
+            totalCBefore = totalCAfter + (oldC - newC);
+        }
+        
+        uint256 computedN = 0;
+        uint256 computedM = 0;
+        
+        // delta must be non-negative perfect square by puzzle definition
+        if (newC >= oldC) {
+            uint256 delta = newC - oldC;
+            uint256 n = Math.sqrt(delta);
+            uint256 m = Math.sqrt(totalCAfter);
+            if (_safeMul(n, n) == delta && _safeMul(m, m) == totalCAfter) {
+                computedN = n;
+                computedM = m;
+            }
+        }
+        
+        currentN = computedN;
+        currentM = computedM;
+        if (computedN > maxN) maxN = computedN;
+        if (computedM > maxM) maxM = computedM;
+        
+        emit PuzzleMetricsUpdated(
+            pageId,
+            oldC,
+            newC,
+            totalCBefore,
+            totalCAfter,
+            currentM,
+            currentN,
+            maxM,
+            maxN
+        );
     }
 }
