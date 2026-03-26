@@ -137,6 +137,10 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     uint256 public maxM;
     uint256 public maxN;
     
+    // Power-up tracking: each coordinate can only award a power-up once globally
+    mapping(bytes32 => bool) public coordinatePowerUpClaimed;
+    uint256 public totalPowerUpsClaimed;
+    
     // Events
     event MarketCreated(
         uint256 indexed pageId,
@@ -264,6 +268,14 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         uint256 currentN,
         uint256 maxM,
         uint256 maxN
+    );
+    
+    event PowerUpClaimed(
+        uint256 indexed pageId,
+        address indexed claimer,
+        uint256 x,
+        uint256 y,
+        uint256 totalClaimed
     );
     
     // Custom errors for gas-efficient reverts
@@ -703,6 +715,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         emit VoterFirstParticipation(pageId, msg.sender, block.timestamp);
         emit LiquidityAdded(pageId, totalPayment, paymentToken.balanceOf(address(this)));
         
+        _checkAndClaimPowerUp(pageId, msg.sender, initialX, initialY);
         _updatePuzzleMetrics(pageId, 0, Math.sqrt(sumSquares));
     }
     
@@ -921,6 +934,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
             emit VoterFirstParticipation(pageId, msg.sender, block.timestamp);
         }
         
+        _checkAndClaimPowerUp(pageId, msg.sender, newX, newY);
         _updatePuzzleMetrics(pageId, currentHypotenuseInt, newHypotenuseInt);
     }
 
@@ -1525,6 +1539,30 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         uint256 d2 = _safeMul(d, d);
         uint256 scaledSumSquares = _safeMul(sumSquares, d2);
         return Math.sqrt(scaledSumSquares);
+    }
+    
+    /**
+     * @dev Check if coordinate is a fresh power-up; if so, mark claimed and emit event.
+     *      Each (x, y) coordinate can only award a power-up once across all entities/users.
+     */
+    function _checkAndClaimPowerUp(uint256 pageId, address claimer, uint256 x, uint256 y) internal {
+        bytes32 coordHash = keccak256(abi.encodePacked(x, y));
+        if (!coordinatePowerUpClaimed[coordHash]) {
+            coordinatePowerUpClaimed[coordHash] = true;
+            totalPowerUpsClaimed += 1;
+            emit PowerUpClaimed(pageId, claimer, x, y, totalPowerUpsClaimed);
+        }
+    }
+    
+    /**
+     * @dev Check whether a coordinate's power-up has already been claimed
+     * @param x X coordinate
+     * @param y Y coordinate
+     * @return True if the power-up at (x, y) has been claimed
+     */
+    function isCoordinatePowerUpClaimed(uint256 x, uint256 y) external view returns (bool) {
+        bytes32 coordHash = keccak256(abi.encodePacked(x, y));
+        return coordinatePowerUpClaimed[coordHash];
     }
     
     /**
