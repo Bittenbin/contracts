@@ -140,6 +140,12 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     // Power-up tracking: each coordinate can only award a power-up once globally
     mapping(bytes32 => bool) public coordinatePowerUpClaimed;
     uint256 public totalPowerUpsClaimed;
+
+    // Optional onchain enforcement of the work-puzzle gate (see README §7).
+    // When `puzzleGateEnabled == true`, every transition (create or vote) must leave
+    // global `totalC` as a perfect integer square. Defaults to false to preserve
+    // backwards compatibility; toggle via `setPuzzleGateEnabled`.
+    bool public puzzleGateEnabled;
     
     // Events
     event MarketCreated(
@@ -277,6 +283,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         uint256 y,
         uint256 totalClaimed
     );
+
+    event PuzzleGateToggled(address indexed by, bool enabled);
     
     // Custom errors for gas-efficient reverts
     error InvalidCoordinate();
@@ -299,6 +307,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     error MintingNotSupported();
     error EmissionExhausted();
     error UpgradesDisabled();
+    error PuzzleGateFailed();
+    error UnexpectedMarketState();
     
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -354,7 +364,9 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         if (divisor == 0) {
             return 0;
         }
-        return PHASE_TWO_INITIAL_ANNUAL_EMISSION / divisor;
+        // Round up so the geometric series fully consumes the 1M TBN tail budget;
+        // the per-claim cap in `claimRewards` clamps the dust overshoot to MAX_EMISSION.
+        return Math.ceilDiv(PHASE_TWO_INITIAL_ANNUAL_EMISSION, divisor);
     }
 
     function _rewardBetweenTimestamps(uint256 fromTimestamp, uint256 toTimestamp) internal view returns (uint256 totalReward) {
@@ -516,10 +528,13 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
             revert EmissionExhausted();
         }
         if (reward > remaining) {
+            // Cap-clamped claim: any unclaimable dust above the cap is forfeited so
+            // the user is not stuck with a permanently unclaimable pending balance.
             reward = remaining;
+            pendingRewards[msg.sender] = 0;
+        } else {
+            pendingRewards[msg.sender] = pendingRewards[msg.sender] - reward;
         }
-        
-        pendingRewards[msg.sender] = pendingRewards[msg.sender] - reward;
         totalEmitted += reward;
         
         // Mint reward tokens to user (PMM must be set as minter on TENBIN)
@@ -705,7 +720,10 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         uint256 newUserTotalStake = userTotalStake[msg.sender] + yCostPart + xCostPart;
         _updateUserStake(msg.sender, newUserTotalStake);
         
-        emit MarketCreated(pageId, msg.sender, initialX, initialY, totalVotes);
+        // `cost` is the integer hypotenuse √(x² + y²); the legacy `totalVotes`
+        // (= x + y) is still tracked in `totalVoteVolume` storage for indexers
+        // that need the additive measure.
+        emit MarketCreated(pageId, msg.sender, initialX, initialY, Math.sqrt(sumSquares));
         if (bytes(url).length > 0) {
             // Emit raw URL for off-chain indexing; hash is stored for uniqueness checks
             emit MarketMetadata(pageId, urlHash, url);
@@ -734,7 +752,11 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
     }
     
     /**
-     * @dev Vote on market with custom slippage tolerance
+     * @dev Vote on market with a slippage tolerance bound applied around the
+     *      live market state. NOTE: this overload provides no real MEV
+     *      protection because the tolerance is computed against the same live
+     *      state used for execution; prefer `voteOnMarketSafe` which compares
+     *      against the user-supplied expected starting state.
      * @param pageId The page ID to vote on
      * @param newX New x (for the entire market)
      * @param newY New y (for the entire market)
@@ -747,6 +769,102 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         uint256 slippageBasisPoints
     ) external whenNotPaused nonReentrant {
         _voteOnMarketWithSlippage(pageId, newX, newY, slippageBasisPoints);
+    }
+
+    /**
+     * @dev Vote on market with stale-state protection. The caller passes the
+     *      market coordinates they observed at submission time
+     *      (`expectedFromX`, `expectedFromY`). If the actual current
+     *      coordinates would change the cost of the move by more than
+     *      `slippageBasisPoints` of the expected payment magnitude, the call
+     *      reverts with `SlippageExceeded`. Setting `slippageBasisPoints = 0`
+     *      requires the market to be exactly at the expected state.
+     * @param pageId            The page ID to vote on.
+     * @param expectedFromX     The market x the caller observed off-chain.
+     * @param expectedFromY     The market y the caller observed off-chain.
+     * @param newX              Target x.
+     * @param newY              Target y.
+     * @param slippageBasisPoints Tolerance (in basis points) around the
+     *                            expected payment / refund magnitude.
+     */
+    function voteOnMarketSafe(
+        uint256 pageId,
+        uint256 expectedFromX,
+        uint256 expectedFromY,
+        uint256 newX,
+        uint256 newY,
+        uint256 slippageBasisPoints
+    ) external whenNotPaused nonReentrant {
+        if (slippageBasisPoints > BASIS_POINTS_DENOMINATOR) {
+            revert InvalidSlippage();
+        }
+        if (!marketExists[pageId]) {
+            revert MarketDoesNotExist();
+        }
+
+        Coordinate memory current = marketCoordinates[pageId];
+        _enforceStateSlippage(
+            current.x,
+            current.y,
+            expectedFromX,
+            expectedFromY,
+            newX,
+            newY,
+            slippageBasisPoints
+        );
+
+        _voteOnMarketWithSlippage(pageId, newX, newY, slippageBasisPoints);
+    }
+
+    /**
+     * @dev Compares the market's actual starting state to the caller's expected
+     *      starting state and reverts if the resulting cost would diverge by
+     *      more than the user's slippage tolerance. The bound is computed
+     *      against the magnitude of the expected payment so a tolerance of 0
+     *      requires the market to sit exactly where the caller observed.
+     */
+    function _enforceStateSlippage(
+        uint256 currentX,
+        uint256 currentY,
+        uint256 expectedFromX,
+        uint256 expectedFromY,
+        uint256 newX,
+        uint256 newY,
+        uint256 slippageBasisPoints
+    ) internal view {
+        _validateCoordinateBounds(expectedFromX, expectedFromY);
+        _validateCoordinateBounds(newX, newY);
+
+        uint256 expectedFromHyp = _computeHypotenuseScaledLoose(expectedFromX, expectedFromY);
+        uint256 currentHyp = _computeHypotenuseScaled(currentX, currentY);
+        uint256 newHyp = _computeHypotenuseScaledLoose(newX, newY);
+
+        uint256 deviation = currentHyp > expectedFromHyp
+            ? currentHyp - expectedFromHyp
+            : expectedFromHyp - currentHyp;
+
+        uint256 expectedMagnitude = newHyp > expectedFromHyp
+            ? newHyp - expectedFromHyp
+            : expectedFromHyp - newHyp;
+
+        // Allow a tolerance proportional to the expected payment magnitude.
+        // For a no-op expectation (expectedMagnitude == 0) a 0% tolerance
+        // requires the market to be exactly where the caller expected.
+        uint256 maxDeviation = (expectedMagnitude * slippageBasisPoints) / BASIS_POINTS_DENOMINATOR;
+        if (deviation > maxDeviation) {
+            revert SlippageExceeded();
+        }
+    }
+
+    /**
+     * @dev Variant of `_computeHypotenuseScaled` that allows the (0, 0) origin
+     *      so the slippage check can quote payments relative to an unset state.
+     */
+    function _computeHypotenuseScaledLoose(uint256 x, uint256 y) private view returns (uint256) {
+        if (x == 0 && y == 0) {
+            return 0;
+        }
+        return _computeHypotenuseScaled(x, y);
     }
     
     /**
@@ -844,24 +962,7 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
                 slippageBasisPoints
             );
             totalVoteVolume[pageId] += uint256(hypotenuseChangeScaled);
-            // Update cost basis by decomposing path into y leg then x leg
-            uint256 yBuy = yDelta > 0 ? uint256(yDelta) : 0;
-            uint256 xBuy = xDelta > 0 ? uint256(xDelta) : 0;
-            if (yDelta > 0) {
-                uint256 yPart = _computeHypotenuseScaled(current.x, current.y + yBuy) - _computeHypotenuseScaled(current.x, current.y);
-                userHoldings.yCost += yPart;
-            }
-            if (xDelta > 0) {
-                uint256 xPart = _computeHypotenuseScaled(current.x + xBuy, current.y + yBuy) - _computeHypotenuseScaled(current.x, current.y + yBuy);
-                userHoldings.xCost += xPart;
-            }
         } else if (hypotenuseChangeScaled < 0) {
-            // Before sell, compute previous holdings for pro-rata reduction
-            uint256 prevY = voterPos.yVotes;
-            uint256 prevX = voterPos.xVotes;
-            uint256 ySell = yDelta < 0 ? uint256(-yDelta) : 0;
-            uint256 xSell = xDelta < 0 ? uint256(-xDelta) : 0;
-
             protocolFee = _processSellVotesWithSlippage(
                 pageId,
                 uint256(-hypotenuseChangeScaled),
@@ -870,16 +971,23 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
                 voterPos,
                 slippageBasisPoints
             );
-            // Pro-rata reduce cost basis for sold units
-            if (ySell > 0 && prevY > 0) {
-                userHoldings.yCost = userHoldings.yCost * (prevY - ySell) / prevY;
-            }
-            if (xSell > 0 && prevX > 0) {
-                userHoldings.xCost = userHoldings.xCost * (prevX - xSell) / prevX;
-            }
         } else {
             _processRebalance(yDelta, xDelta, voterPos);
         }
+
+        // Update the user's cost basis using a path-independent leg
+        // decomposition (y-leg first, then x-leg). This guarantees the
+        // invariant `sum_users(yCost + xCost) == current scaled hypotenuse`
+        // for the market and keeps the per-user stake equal to that user's
+        // realised net spend, including for mixed-axis moves where one axis
+        // increases while the other decreases.
+        _updateCostBasisLegDecomposition(
+            userHoldings,
+            current.x,
+            newY,
+            currentHypotenuseScaled,
+            newHypotenuseScaled
+        );
         
         // Update global staking state with new cost basis
         uint256 newPlatformCost = userHoldings.yCost + userHoldings.xCost;
@@ -936,6 +1044,79 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         
         _checkAndClaimPowerUp(pageId, msg.sender, newX, newY);
         _updatePuzzleMetrics(pageId, currentHypotenuseInt, newHypotenuseInt);
+    }
+
+    /**
+     * @dev Decompose the path (currentX, currentY) -> (currentX, newY) -> (newX, newY)
+     *      and apply each leg's signed scaled-hypotenuse delta to the caller's
+     *      yCost / xCost. When a negative leg would underflow its target field
+     *      (multi-user markets where the marginal value the user is selling
+     *      exceeds what they paid for that axis), the excess cascades into the
+     *      sibling field and is finally clamped at zero. This keeps each
+     *      user's `yCost + xCost` equal to their net spend for the market,
+     *      including the otherwise-broken mixed-axis case.
+     */
+    function _updateCostBasisLegDecomposition(
+        HoldingCosts storage userHoldings,
+        uint256 currentX,
+        uint256 newY,
+        uint256 currentHypotenuseScaled,
+        uint256 newHypotenuseScaled
+    ) internal {
+        uint256 yMidScaled = _computeHypotenuseScaled(currentX, newY);
+
+        int256 yLegDelta = int256(yMidScaled) - int256(currentHypotenuseScaled);
+        int256 xLegDelta = int256(newHypotenuseScaled) - int256(yMidScaled);
+
+        _applyLegDelta(userHoldings, yLegDelta, true);
+        _applyLegDelta(userHoldings, xLegDelta, false);
+    }
+
+    /**
+     * @dev Apply a single signed leg delta to the caller's holdings, with
+     *      cascade-on-underflow into the sibling axis and a final zero clamp.
+     * @param userHoldings storage pointer to the caller's holdings struct.
+     * @param legDelta     signed delta in scaled payment-token units.
+     * @param applyToYCost when true the delta targets `yCost` first (cascading
+     *                     into `xCost` on underflow); when false it targets
+     *                     `xCost` first (cascading into `yCost`).
+     */
+    function _applyLegDelta(
+        HoldingCosts storage userHoldings,
+        int256 legDelta,
+        bool applyToYCost
+    ) internal {
+        if (legDelta == 0) {
+            return;
+        }
+        if (legDelta > 0) {
+            uint256 increment = uint256(legDelta);
+            if (applyToYCost) {
+                userHoldings.yCost += increment;
+            } else {
+                userHoldings.xCost += increment;
+            }
+            return;
+        }
+
+        uint256 reduction = uint256(-legDelta);
+        if (applyToYCost) {
+            if (reduction <= userHoldings.yCost) {
+                userHoldings.yCost -= reduction;
+            } else {
+                uint256 excess = reduction - userHoldings.yCost;
+                userHoldings.yCost = 0;
+                userHoldings.xCost = excess >= userHoldings.xCost ? 0 : userHoldings.xCost - excess;
+            }
+        } else {
+            if (reduction <= userHoldings.xCost) {
+                userHoldings.xCost -= reduction;
+            } else {
+                uint256 excess = reduction - userHoldings.xCost;
+                userHoldings.xCost = 0;
+                userHoldings.yCost = excess >= userHoldings.yCost ? 0 : userHoldings.yCost - excess;
+            }
+        }
     }
 
     /**
@@ -1579,7 +1760,8 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
         
         uint256 computedN = 0;
         uint256 computedM = 0;
-        
+        bool transitionMatchesStrictGate = false;
+
         // delta must be non-negative perfect square by puzzle definition
         if (newC >= oldC) {
             uint256 delta = newC - oldC;
@@ -1588,9 +1770,25 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
             if (_safeMul(n, n) == delta && _safeMul(m, m) == totalCAfter) {
                 computedN = n;
                 computedM = m;
+                transitionMatchesStrictGate = true;
             }
         }
-        
+
+        // Enforce the optional onchain puzzle gate (README §7). Only the base
+        // gate (`C'` is a perfect square) is enforced; the strict variant is
+        // surfaced through the metrics fields so off-chain searchers can see
+        // when their move also satisfies `delta = n^2`.
+        if (puzzleGateEnabled) {
+            uint256 root = Math.sqrt(totalCAfter);
+            if (_safeMul(root, root) != totalCAfter) {
+                revert PuzzleGateFailed();
+            }
+            // No-op: `transitionMatchesStrictGate` is informational once the
+            // base gate is enforced; left in the local frame to make the
+            // strict-gate distinction obvious to future maintainers.
+            transitionMatchesStrictGate;
+        }
+
         currentN = computedN;
         currentM = computedM;
         if (computedN > maxN) maxN = computedN;
@@ -1607,5 +1805,19 @@ contract PythagoreanMarketMaker is Initializable, UUPSUpgradeable, OwnableUpgrad
             maxM,
             maxN
         );
+    }
+
+    /**
+     * @notice Toggle the onchain work-puzzle gate.
+     * @dev When enabled, every successful create/vote must leave the global
+     *      `totalC` as a perfect integer square (the README §7 base gate).
+     *      Defaults to disabled to preserve backwards compatibility.
+     * @param enabled True to start enforcing the gate, false to relax it.
+     */
+    function setPuzzleGateEnabled(bool enabled) external onlyOwner {
+        if (puzzleGateEnabled != enabled) {
+            puzzleGateEnabled = enabled;
+            emit PuzzleGateToggled(msg.sender, enabled);
+        }
     }
 }

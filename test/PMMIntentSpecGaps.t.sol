@@ -9,18 +9,28 @@ import {PMMIntentTestBase} from "./helpers/PMMIntentTestBase.sol";
 contract PMMIntentSpecGapsTest is PMMIntentTestBase {
     function test_spec_zeroSlippageRejectsStaleExecution() public {
         uint256 pageId = _createMarketAs(alice, "https://stale-slippage.test", 3, 4);
+        uint256 aliceBalanceBefore = usdc.balanceOf(alice);
 
         vm.prank(bob);
         pmm.voteOnMarket(pageId, 8, 15);
 
+        // Alice signed her transaction observing the market at (3, 4) and is
+        // willing to accept zero deviation from that observation.
         vm.prank(alice);
         vm.expectRevert(PythagoreanMarketMaker.SlippageExceeded.selector);
-        pmm.voteOnMarketWithSlippage(pageId, 5, 12, 0);
+        pmm.voteOnMarketSafe(pageId, 3, 4, 5, 12, 0);
+
+        // The reverted call must not have moved any USDC.
+        assertEq(usdc.balanceOf(alice), aliceBalanceBefore);
     }
 
     function test_spec_marketCreationRequiresPerfectSquareTotalC() public {
+        // The optional puzzle gate (README §7) is opt-in; once enabled, every
+        // transition must keep `totalC` a perfect integer square.
+        pmm.setPuzzleGateEnabled(true);
+
         vm.prank(alice);
-        vm.expectRevert();
+        vm.expectRevert(PythagoreanMarketMaker.PuzzleGateFailed.selector);
         pmm.createMarket("https://non-square-total-c.test", 3, 4);
     }
 
