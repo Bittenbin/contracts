@@ -1,167 +1,257 @@
-# Pythagorean Market Maker (PMM)
+# Pythagorean Market Maker V2
 
-A decentralized reputation system using Pythagorean coordinates to track trust and distrust votes for any platform entity.
+Bittenbin PMM v2 is a fresh Ethereum-oriented implementation of the protocol described in `docs/whitepaper-v2.pdf`. It combines the Pythagorean market maker, automatic proof-of-proximity detection, and Tenbinium (`TBN`) token rewards.
 
-## 🚀 Live Deployments
+The v2 runtime uses two contracts:
 
-### Base Mainnet
-- **Contract**: [`0xC37CC635f5fAf9D10f1C620BDc8431Efe7526fc8`](https://basescan.org/address/0xC37CC635f5fAf9D10f1C620BDc8431Efe7526fc8)
-- **USDC**: [`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`](https://basescan.org/token/0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913) (Official)
-- **Chain ID**: 8453
-- **Explorer**: [Basescan](https://basescan.org)
+- `PythagoreanMarketMakerV2`: PMM locations, relocations, proof-of-proximity, solver power, rewards, fees, and proximity reads.
+- `Tenbinium`: ERC-20 reward token with zero initial supply, a 21,000,000 TBN cap, burn support, and PMM v2 as minter.
 
-### Base Sepolia Testnet
-- **Contract**: [`0xd37263E22862f36aB23427D33667e10AE1Fe3648`](https://sepolia.basescan.org/address/0xd37263E22862f36aB23427D33667e10AE1Fe3648)
-- **MockUSDC**: [`0x37f48aE1ccc86c221C743318FdE68507bFF19319`](https://sepolia.basescan.org/address/0x37f48aE1ccc86c221C743318FdE68507bFF19319) (Mintable)
-- **Chain ID**: 84532
-- **Explorer**: [Sepolia Basescan](https://sepolia.basescan.org)
-- **Faucet**: [Base Sepolia Faucet](https://www.alchemy.com/faucets/base-sepolia)
+## Protocol Overview
 
-**Authors**: rtedwardchen and clwsqc
+Each agent is identified by a `bytes32 agentId`, intended to be the keccak-256 hash of a creator-supplied primary ID such as an agent URL.
 
-## Overview
+Each listed agent occupies a unique Pythagorean lattice point `(x, y, c)` where:
 
-PMM creates reputation markets where:
-- Each market exists at coordinates (x, y) where **x = distrust votes** and **y = trust votes**
-- Coordinates must satisfy the Pythagorean theorem: x² + y² = c² (where c is an integer)
-- **Cost = sqrt(x² + y²) USDC** with 1% protocol fee
-- Individual vote tracking ensures you can only sell votes you own
-- Built-in MEV protection with 2.5% default slippage tolerance
-
-### Key Features
-- Create markets for any numeric platform ID
-- Buy votes to increase trust or distrust
-- Sell only the votes you personally contributed
-- No expiration - markets exist forever
-- Gas-efficient design for millions of users
-
-## Quick Start
-
-💡 **Tip**: Test on Base Sepolia first before using mainnet!
-
-### Using Basescan UI
-1. Visit [contract on Basescan](https://basescan.org/address/0xC37CC635f5fAf9D10f1C620BDc8431Efe7526fc8#writeProxyContract)
-2. Click "Contract" → "Write as Proxy"
-3. Connect wallet and interact
-
-### Using JavaScript
-```javascript
-const PMM_ADDRESS = "0xC37CC635f5fAf9D10f1C620BDc8431Efe7526fc8";
-const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
-
-// Approve USDC first
-await usdc.approve(PMM_ADDRESS, ethers.parseUnits("100", 6));
-
-// Create a market at (3,4) - costs 5.05 USDC
-await pmm.createMarket(1234567890, 3, 4);
-
-// Vote to move market to (5,12) - costs 8.08 USDC  
-await pmm.voteOnMarket(1234567890, 5, 12);
+```text
+c = sqrt(x^2 + y^2)
 ```
 
-### Using Python
-```bash
-# For Base Mainnet (real USDC)
-python pmm_cookbook_mainnet.py check-market 1234567890
+The PMM cost is based on the change in `c`:
 
-# For Base Sepolia Testnet (test USDC - recommended for testing!)
-python pmm_cookbook_testnet.py check-market 1234567890
-
-# Testnet example - mint free test USDC
-from pmm_cookbook_testnet import PMM_Cookbook
-cookbook = PMM_Cookbook(private_key)
-cookbook.mint_test_usdc(100)  # Mint 100 test USDC
-cookbook.create_market(1234567890, 3, 4)
+```text
+new listing:  c
+relocation:   newC - oldC
 ```
 
-## How It Works
+Positive `deltaC` requires USDC payment plus a 1% protocol fee. Negative `deltaC` returns USDC minus a 1% protocol fee. Zero `deltaC` relocations do not pay or receive USDC, but can still trigger the separate TBN burn if the destination was previously used as a proof destination.
 
-### Pricing Formula
-```
-Cost = sqrt(x_new² + y_new²) - sqrt(x_current² + y_current²) + 1% fee
-```
+## Proof-Of-Proximity
 
-| Action | From → To | Cost |
-|--------|-----------|------|
-| Create | (0,0) → (3,4) | 5.05 USDC |
-| Buy | (3,4) → (5,12) | 8.08 USDC |
-| Sell | (5,12) → (3,4) | -7.92 USDC (refund) |
-| Rebalance | (3,4) → (4,3) | 0 USDC |
+Every positive listing or relocation automatically checks whether it solves proof-of-proximity.
 
-### Vote Tracking
-- When you create a market, you own all initial votes
-- When you move a market, you own the vote delta
-- You can only sell votes you previously bought
-- Your position accumulates across multiple transactions
+A transaction is a valid solution when:
 
-### Trust Score
-```
-Trust Score = y² / (x² + y²)
-```
-- (3,4) = 64% trust
-- (4,3) = 36% trust
-- (5,12) = 92% trust
+- `deltaC = n^2`
+- post-transaction `totalStakedValue = m^2`
+- destination `(x, y, c)` has not previously been used as a puzzle-solving destination
 
-## Contract Functions
+When valid, the contract:
 
-### Core Functions
-- `createMarket(platformId, x, y)` - Create new market
-- `voteOnMarket(platformId, newX, newY)` - Change market position
-- `getMarketState(platformId)` - Get current position and trust score
-- `getVoterPosition(platformId, voter)` - Check voter's owned votes
+- marks the destination as used
+- updates `nMax = max(nMax, n)`
+- increases the solver's power by `deltaC`
+- emits `ProofOfProximitySolved`
 
-### With Custom Slippage
-- `createMarketWithSlippage(platformId, x, y, slippageBasisPoints)`
-- `voteOnMarketWithSlippage(platformId, newX, newY, slippageBasisPoints)`
+The solver is the wallet that executed the transaction (`msg.sender`).
 
-## Valid Coordinates
+## TBN Rewards
 
-Common Pythagorean triples for initial markets:
-- (3,4) - 5 votes total
-- (5,12) - 13 votes total  
-- (8,15) - 17 votes total
-- (7,24) - 25 votes total
-- (20,21) - 29 votes total
+TBN has zero initial supply and a hard cap of 21,000,000 tokens.
 
-Use `isValidCoordinate(x,y)` to check validity.
+Solver power earns TBN pro rata through a global reward accumulator:
 
-## Fee Distribution
+- Years 1-20: 1,000,000 TBN per year
+- Year 21 onward: 500,000 TBN per year, halving yearly
 
-- 1% fee on all transactions
-- Split 50/50 between owner and protocol recipients
-- Owner functions: `distributeProtocolFees()`, `updateFeeRecipients()`
+Emission starts only after solver power first exists. Solvers claim rewards with `claimTBN()`.
 
-## Safety Features
+If total solver power later falls to zero, emissions for that time window are not allocated or minted. This acts like unminted emission decay, so actual TBN supply may finish below the 21,000,000 hard cap.
 
-- Maximum coordinate: 1 billion
-- Overflow protection on all math operations
-- Pausable by owner in emergencies
-- Comprehensive event logging for monitoring
+Any transaction that enters a destination previously used as a proof-solving destination burns `1 TBN` from the caller.
+
+## Core Functions
+
+`createAgent(bytes32 agentId, uint256 x, uint256 y)`
+
+Lists a new agent at a unique valid Pythagorean coordinate. The caller pays `c` USDC plus 1% fee, receives initial x/y exposure, and may automatically solve proof-of-proximity if the transaction qualifies.
+
+`relocateAgent(bytes32 agentId, uint256 currentX, uint256 currentY, uint256 newX, uint256 newY)`
+
+Moves an existing agent from the caller's expected current coordinate to a new valid Pythagorean coordinate. The `currentX` and `currentY` guard prevents stale-state execution: if the agent has moved before the transaction lands, the relocation reverts before payment, refund, burn, exposure update, or proof detection. Positive `deltaC` charges USDC, negative `deltaC` refunds USDC and reduces the caller's solver power, and qualifying positive moves automatically solve proof-of-proximity.
+
+`claimTBN()`
+
+Settles and mints the caller's accrued TBN rewards.
+
+`distributeProtocolFees(uint256 amount)`
+
+Owner-only. Distributes accumulated USDC protocol fees 50/50 between `ownerFeeRecipient` and `protocolFeeRecipient`. Passing `0` distributes all accumulated fees.
+
+`updateFeeRecipients(address newOwnerRecipient, address newProtocolRecipient)`
+
+Owner-only. Updates the two fee recipient addresses.
+
+`pause()` and `unpause()`
+
+Owner-only emergency controls for PMM state-changing actions.
+
+## Read Functions
+
+`getAgentState(bytes32 agentId)`
+
+Returns `(x, y, c, exists)` for an agent.
+
+`getExposure(bytes32 agentId, address participant)`
+
+Returns a participant's owned x/y exposure for an agent. A participant can only sell exposure they previously acquired.
+
+`pendingTBN(address solver)`
+
+Returns the solver's claimable TBN, including rewards accrued since the last global update.
+
+`areConnected(bytes32 agentA, bytes32 agentB)`
+
+Returns whether two agents are within the current proximity radius `nMax`.
+
+`isValidCoordinate(uint256 x, uint256 y)`
+
+Returns whether `(x, y)` forms a valid Pythagorean coordinate under protocol bounds.
+
+`destinationHash(uint256 x, uint256 y, uint256 c)` and `coordinateHash(uint256 x, uint256 y)`
+
+Pure helpers for deriving destination and coordinate hashes used by the protocol.
+
+## Key Events
+
+`AgentCreated(bytes32 indexed agentId, address indexed creator, uint256 x, uint256 y, uint256 c)`
+
+Emitted when an agent is listed.
+
+`AgentRelocated(bytes32 indexed agentId, address indexed participant, uint256 fromX, uint256 fromY, uint256 toX, uint256 toY, int256 deltaC)`
+
+Emitted when an agent is relocated.
+
+`ExposureUpdated(bytes32 indexed agentId, address indexed participant, uint256 xExposure, uint256 yExposure)`
+
+Emitted after participant exposure changes.
+
+`ProofOfProximitySolved(address indexed solver, bytes32 indexed agentId, uint256 x, uint256 y, uint256 deltaC, uint256 n, uint256 newTVL, uint256 nMax)`
+
+Emitted when a transaction automatically solves proof-of-proximity.
+
+`SolverPowerUpdated(address indexed solver, uint256 power, uint256 totalPower)`
+
+Emitted when solver power changes.
+
+`TbnClaimed(address indexed solver, uint256 amount)`
+
+Emitted when a solver claims TBN.
+
+`TbnBurnedForUsedDestination(address indexed payer, bytes32 indexed destinationHash, uint256 amount)`
+
+Emitted when the 1 TBN used-destination fee is burned.
+
+`ProtocolFeesDistributed(address indexed ownerRecipient, address indexed protocolRecipient, uint256 ownerAmount, uint256 protocolAmount)`
+
+Emitted when accumulated USDC fees are distributed.
+
+`FeeRecipientsUpdated(address indexed ownerRecipient, address indexed protocolRecipient)`
+
+Emitted when fee recipients are updated.
 
 ## Development
 
-### Setup
+Install dependencies and run tests:
+
 ```bash
 npm install
 npx hardhat compile
 npx hardhat test
 ```
 
-### Deploy Your Own
+Run only the v2 tests:
+
 ```bash
-npx hardhat run scripts/deploy.js --network base
+npm run test:v2
 ```
 
-### Python Cookbooks
-- `pmm_cookbook_mainnet.py` - Base Mainnet (real USDC)
-- `pmm_cookbook_testnet.py` - Base Sepolia (test USDC)
+Run a specific category:
 
-## Technical Documentation
+```bash
+npm run test:pmm
+npm run test:proof
+npm run test:tbn
+npm run test:fees
+npm run test:security
+npm run test:frontrun
+npm run test:lategame
+npm run test:integration
+```
 
-For detailed technical information:
-- [Pythagorean Coordinates Math](docs/PYTHAGOREAN_COORDINATES.md)
-- Contract implements UUPS upgradeable pattern
-- Uses OpenZeppelin security libraries
+## Deployment
+
+The v2 deployment scripts deploy fresh `Tenbinium` and `PythagoreanMarketMakerV2` contracts.
+
+```bash
+npm run deploy:v2:sepolia
+npm run deploy:v2:mainnet
+```
+
+By default, the script uses Ethereum Sepolia USDC:
+
+```text
+0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238
+```
+
+Override deployment parameters with:
+
+```bash
+PAYMENT_TOKEN=0x...
+OWNER_FEE_RECIPIENT=0x...
+PROTOCOL_FEE_RECIPIENT=0x...
+INITIAL_OWNER=0x...
+FREEZE_TBN_MINTER=true # optional, one-way
+```
+
+After deployment, `Tenbinium` should have `PythagoreanMarketMakerV2` set as its minter. Freezing the minter makes this assignment permanent, preventing the TBN owner from later installing another minter and minting outside the PMM reward schedule.
+
+Check a saved deployment or explicit contract addresses:
+
+```bash
+npm run check:v2 -- --network sepolia
+PMM_V2_ADDRESS=0x... TBN_ADDRESS=0x... PAYMENT_TOKEN=0x... npm run check:v2 -- --network mainnet
+```
+
+Ownership renounce checklist:
+
+1. Verify `Tenbinium.minter()` is the deployed PMM v2 address.
+2. Call `Tenbinium.freezeMinter()` if it was not frozen during deployment.
+3. Verify `Tenbinium.minterFrozen()` is `true`.
+4. Transfer PMM v2 ownership to a multisig, or call `renounceOwnership()` only if the protocol no longer needs `pause`, `unpause`, `updateFeeRecipients`, or `distributeProtocolFees`.
+5. Transfer TBN ownership to a multisig, or call `renounceOwnership()` after `freezeMinter()` if no further owner controls are desired.
+
+## Python Cookbooks
+
+The Python cookbooks target PMM v2:
+
+- `pmm_cookbook_mainnet.py`: Ethereum mainnet
+- `pmm_cookbook_testnet.py`: Ethereum Sepolia
+
+Set deployed contract addresses before use:
+
+```bash
+PMM_V2_ADDRESS=0x...
+TBN_ADDRESS=0x...
+PRIVATE_KEY=0x... # only needed for transactions
+```
+
+Common commands:
+
+```bash
+python pmm_cookbook_testnet.py health
+python pmm_cookbook_testnet.py agent-id https://agent.example
+python pmm_cookbook_testnet.py validate 15 20
+python pmm_cookbook_testnet.py state <agent_id>
+python pmm_cookbook_testnet.py approve-usdc 100
+python pmm_cookbook_testnet.py create <agent_id> 15 20
+python pmm_cookbook_testnet.py relocate <agent_id> 15 20 20 21
+python pmm_cookbook_testnet.py claim-tbn
+```
+
+## Legacy V1
+
+`src/PythagoreanMarketMaker.sol` is the legacy v1 contract. PMM v2 does not depend on it at runtime.
 
 ## License
 
