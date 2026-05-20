@@ -9,7 +9,7 @@ describe("PMM V2 - TBN Rewards", function () {
     const { pmm, tbn, alice } = await deployV2();
 
     // First valid proof starts emissions and gives Alice all solver power.
-    await pmm.connect(alice).createAgent(agentId("solver-agent"), 15, 20);
+    await pmm.connect(alice).createAgent("solver-agent", 15, 20);
     await time.increase(YEAR);
 
     await expect(pmm.connect(alice).claimTBN())
@@ -23,9 +23,10 @@ describe("PMM V2 - TBN Rewards", function () {
 
   it("reduces solver power after negative delta relocations", async function () {
     const { pmm, alice } = await deployV2();
-    const id = agentId("solver-agent");
+    const primaryId = "solver-agent";
+    const id = agentId(primaryId);
 
-    await pmm.connect(alice).createAgent(id, 15, 20); // power = 25
+    await pmm.connect(alice).createAgent(primaryId, 15, 20); // power = 25
     // Negative deltaC reduces the caller's solver power by abs(deltaC), bounded at zero.
     await pmm.connect(alice).relocateAgent(id, 15, 20, 3, 4); // deltaC = -20
 
@@ -46,7 +47,7 @@ describe("PMM V2 - TBN Rewards", function () {
       .to.be.revertedWithCustomError(tbn, "MinterFrozen");
 
     // Freezing only locks the minter address; PMM can still mint earned rewards.
-    await pmm.connect(alice).createAgent(agentId("frozen-minter-solver"), 15, 20);
+    await pmm.connect(alice).createAgent("frozen-minter-solver", 15, 20);
     await time.increase(YEAR);
     await expect(pmm.connect(alice).claimTBN()).to.emit(pmm, "TbnClaimed");
   });
@@ -55,7 +56,7 @@ describe("PMM V2 - TBN Rewards", function () {
     const { pmm, alice } = await deployV2();
 
     await time.increase(30 * 24 * 60 * 60);
-    await pmm.connect(alice).createAgent(agentId("first-power-after-delay"), 15, 20);
+    await pmm.connect(alice).createAgent("first-power-after-delay", 15, 20);
 
     expect(await pmm.pendingTBN(alice.address)).to.equal(0);
 
@@ -66,12 +67,12 @@ describe("PMM V2 - TBN Rewards", function () {
   it("splits rewards by time-weighted solver power across multiple solvers", async function () {
     const { pmm, tbn, alice, bob } = await deployV2();
 
-    await pmm.connect(alice).createAgent(agentId("alice-solver"), 15, 20); // power = 25
-    await pmm.connect(alice).createAgent(agentId("tvl-helper"), 15, 36); // c = 39, TVL = 64
+    await pmm.connect(alice).createAgent("alice-solver", 15, 20); // power = 25
+    await pmm.connect(alice).createAgent("tvl-helper", 15, 36); // c = 39, TVL = 64
     await time.increase(10 * 24 * 60 * 60);
 
     // Bob's c=225 listing makes TVL 289=17^2, so his deltaC=225=15^2 earns power.
-    await pmm.connect(bob).createAgent(agentId("bob-solver"), 135, 180); // power = 225
+    await pmm.connect(bob).createAgent("bob-solver", 135, 180); // power = 225
     await time.increase(20 * 24 * 60 * 60);
 
     await pmm.connect(alice).claimTBN();
@@ -89,7 +90,7 @@ describe("PMM V2 - TBN Rewards", function () {
   it("has no pending rewards immediately after claim settlement", async function () {
     const { pmm, tbn, alice } = await deployV2();
 
-    await pmm.connect(alice).createAgent(agentId("second-claim"), 15, 20);
+    await pmm.connect(alice).createAgent("second-claim", 15, 20);
     await time.increase(YEAR);
     await pmm.connect(alice).claimTBN();
 

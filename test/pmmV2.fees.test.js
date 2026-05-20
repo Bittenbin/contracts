@@ -7,11 +7,12 @@ const { YEAR, agentId, deployV2 } = require("./helpers/deployV2");
 describe("PMM V2 - Fees", function () {
   it("charges 1% USDC fee on positive deltaC transactions", async function () {
     const { pmm, mockUSDC, alice } = await deployV2();
-    const id = agentId("fee-agent");
+    const primaryId = "fee-agent";
+    const id = agentId(primaryId);
     const balanceBefore = await mockUSDC.balanceOf(alice.address);
 
     // c=5 listing charges 5 USDC plus 0.05 USDC protocol fee.
-    await pmm.connect(alice).createAgent(id, 3, 4);
+    await pmm.connect(alice).createAgent(primaryId, 3, 4);
 
     expect(balanceBefore - await mockUSDC.balanceOf(alice.address)).to.equal(5050000n);
     expect(await pmm.accumulatedProtocolFees()).to.equal(50000n);
@@ -19,9 +20,10 @@ describe("PMM V2 - Fees", function () {
 
   it("does not charge USDC fee on zero deltaC relocations", async function () {
     const { pmm, mockUSDC, alice } = await deployV2();
-    const id = agentId("zero-delta-agent");
+    const primaryId = "zero-delta-agent";
+    const id = agentId(primaryId);
 
-    await pmm.connect(alice).createAgent(id, 3, 4);
+    await pmm.connect(alice).createAgent(primaryId, 3, 4);
     const feeBefore = await pmm.accumulatedProtocolFees();
     const balanceBefore = await mockUSDC.balanceOf(alice.address);
 
@@ -34,11 +36,13 @@ describe("PMM V2 - Fees", function () {
 
   it("burns 1 TBN when relocating into a previously used puzzle destination", async function () {
     const { pmm, tbn, alice } = await deployV2();
-    const mover = agentId("mover");
-    const helper = agentId("helper");
+    const moverPrimaryId = "mover";
+    const helperPrimaryId = "helper";
+    const mover = agentId(moverPrimaryId);
+    const helper = agentId(helperPrimaryId);
 
-    await pmm.connect(alice).createAgent(mover, 20, 21);
-    await pmm.connect(alice).createAgent(helper, 21, 28);
+    await pmm.connect(alice).createAgent(moverPrimaryId, 20, 21);
+    await pmm.connect(alice).createAgent(helperPrimaryId, 21, 28);
     // This move marks (16,63,65) as a used proof destination.
     await pmm.connect(alice).relocateAgent(mover, 20, 21, 16, 63);
 
@@ -58,9 +62,10 @@ describe("PMM V2 - Fees", function () {
 
   it("accumulates USDC fees from positive and negative deltaC transactions", async function () {
     const { pmm, alice } = await deployV2();
-    const id = agentId("positive-and-negative-fees");
+    const primaryId = "positive-and-negative-fees";
+    const id = agentId(primaryId);
 
-    await pmm.connect(alice).createAgent(id, 20, 21); // c=29, fee=0.29 USDC.
+    await pmm.connect(alice).createAgent(primaryId, 20, 21); // c=29, fee=0.29 USDC.
     expect(await pmm.accumulatedProtocolFees()).to.equal(290000n);
 
     // The refund leg charges 1% against the 24 USDC decrease.
@@ -71,7 +76,7 @@ describe("PMM V2 - Fees", function () {
   it("burns 100 TBN to redeem the full USDC fee vault", async function () {
     const { pmm, tbn, mockUSDC, alice, bob } = await deployV2();
 
-    await pmm.connect(alice).createAgent(agentId("fee-vault-solver"), 15, 20);
+    await pmm.connect(alice).createAgent("fee-vault-solver", 15, 20);
     await time.increase(YEAR);
     await pmm.connect(alice).claimTBN();
 
@@ -95,7 +100,7 @@ describe("PMM V2 - Fees", function () {
   it("rejects fee vault redemption with zero or insufficient TBN approval", async function () {
     const { pmm, tbn, alice, bob } = await deployV2();
 
-    await pmm.connect(alice).createAgent(agentId("insufficient-approval-redemption"), 15, 20);
+    await pmm.connect(alice).createAgent("insufficient-approval-redemption", 15, 20);
     await time.increase(YEAR);
     await pmm.connect(alice).claimTBN();
     await tbn.connect(alice).transfer(bob.address, ethers.parseEther("100"));
@@ -111,7 +116,7 @@ describe("PMM V2 - Fees", function () {
   it("burns exactly 100 TBN even when the redeemer approves more", async function () {
     const { pmm, tbn, mockUSDC, alice, bob } = await deployV2();
 
-    await pmm.connect(alice).createAgent(agentId("over-approval-redemption"), 15, 20);
+    await pmm.connect(alice).createAgent("over-approval-redemption", 15, 20);
     await time.increase(YEAR);
     await pmm.connect(alice).claimTBN();
 
@@ -136,7 +141,7 @@ describe("PMM V2 - Fees", function () {
     await expect(pmm.connect(alice).redeemFeeVault())
       .to.be.revertedWithCustomError(pmm, "InvalidFeeAmount");
 
-    await pmm.connect(alice).createAgent(agentId("unfunded-redemption"), 15, 20);
+    await pmm.connect(alice).createAgent("unfunded-redemption", 15, 20);
 
     await expect(pmm.connect(bob).redeemFeeVault()).to.be.reverted;
 

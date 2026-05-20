@@ -7,12 +7,14 @@ const { YEAR, agentId, deployV2 } = require("./helpers/deployV2");
 describe("PMM V2 - Integration", function () {
   it("runs an end-to-end solver lifecycle", async function () {
     const { pmm, tbn, alice } = await deployV2();
-    const mover = agentId("lifecycle-mover");
-    const helper = agentId("lifecycle-helper");
+    const moverPrimaryId = "lifecycle-mover";
+    const helperPrimaryId = "lifecycle-helper";
+    const mover = agentId(moverPrimaryId);
+    const helper = agentId(helperPrimaryId);
 
     // Build TVL=64 so moving c=29 -> c=65 creates a valid proof solution.
-    await pmm.connect(alice).createAgent(mover, 20, 21);
-    await pmm.connect(alice).createAgent(helper, 21, 28);
+    await pmm.connect(alice).createAgent(moverPrimaryId, 20, 21);
+    await pmm.connect(alice).createAgent(helperPrimaryId, 21, 28);
 
     await expect(pmm.connect(alice).relocateAgent(mover, 20, 21, 16, 63))
       .to.emit(pmm, "ProofOfProximitySolved")
@@ -35,13 +37,16 @@ describe("PMM V2 - Integration", function () {
 
   it("maintains TVL and coordinate lifecycle invariants through a mixed sequence", async function () {
     const { pmm, alice, bob } = await deployV2();
-    const a = agentId("stress-a");
-    const b = agentId("stress-b");
-    const c = agentId("stress-c");
+    const aPrimaryId = "stress-a";
+    const bPrimaryId = "stress-b";
+    const cPrimaryId = "stress-c";
+    const a = agentId(aPrimaryId);
+    const b = agentId(bPrimaryId);
+    const c = agentId(cPrimaryId);
 
-    await pmm.connect(alice).createAgent(a, 3, 4); // c = 5
-    await pmm.connect(bob).createAgent(b, 5, 12); // c = 13
-    await pmm.connect(alice).createAgent(c, 8, 15); // c = 17
+    await pmm.connect(alice).createAgent(aPrimaryId, 3, 4); // c = 5
+    await pmm.connect(bob).createAgent(bPrimaryId, 5, 12); // c = 13
+    await pmm.connect(alice).createAgent(cPrimaryId, 8, 15); // c = 17
     expect(await pmm.totalStakedValue()).to.equal(35);
 
     await pmm.connect(alice).relocateAgent(a, 3, 4, 7, 24); // c = 25
@@ -54,7 +59,7 @@ describe("PMM V2 - Integration", function () {
     expect(await pmm.totalStakedValue()).to.equal(59);
 
     // Coordinate (8,15) was freed by c's move, so it can host another agent.
-    await pmm.connect(bob).createAgent(agentId("stress-freed-coordinate"), 8, 15);
+    await pmm.connect(bob).createAgent("stress-freed-coordinate", 8, 15);
     expect(await pmm.totalStakedValue()).to.equal(76);
   });
 });

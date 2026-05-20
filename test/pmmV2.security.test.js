@@ -7,9 +7,10 @@ const { YEAR, agentId, deployV2 } = require("./helpers/deployV2");
 describe("PMM V2 - Security", function () {
   it("reverts stale relocations before executing from an unexpected location", async function () {
     const { pmm, alice } = await deployV2();
-    const id = agentId("stale-agent");
+    const primaryId = "stale-agent";
+    const id = agentId(primaryId);
 
-    await pmm.connect(alice).createAgent(id, 20, 21);
+    await pmm.connect(alice).createAgent(primaryId, 20, 21);
     await pmm.connect(alice).relocateAgent(id, 20, 21, 5, 12);
 
     // currentX/currentY protect users from executing against stale frontend state.
@@ -20,9 +21,10 @@ describe("PMM V2 - Security", function () {
 
   it("prevents selling coordinate exposure the caller does not own", async function () {
     const { pmm, alice, bob } = await deployV2();
-    const id = agentId("protected-exposure-agent");
+    const primaryId = "protected-exposure-agent";
+    const id = agentId(primaryId);
 
-    await pmm.connect(alice).createAgent(id, 5, 12);
+    await pmm.connect(alice).createAgent(primaryId, 5, 12);
 
     // Bob owns no x/y exposure, so he cannot reduce Alice's position.
     await expect(pmm.connect(bob).relocateAgent(id, 5, 12, 3, 4))
@@ -46,7 +48,7 @@ describe("PMM V2 - Security", function () {
   it("allows any TBN holder to redeem the fee vault", async function () {
     const { pmm, tbn, mockUSDC, alice, bob } = await deployV2();
 
-    await pmm.connect(alice).createAgent(agentId("permissionless-fee-vault"), 15, 20);
+    await pmm.connect(alice).createAgent("permissionless-fee-vault", 15, 20);
     await time.increase(YEAR);
     await pmm.connect(alice).claimTBN();
 
@@ -63,7 +65,8 @@ describe("PMM V2 - Security", function () {
   it("supports trust-maximized ownership renounce after freezing the TBN minter", async function () {
     const { pmm, tbn, alice } = await deployV2();
     const pmmAddress = await pmm.getAddress();
-    const id = agentId("renounced-ownership-agent");
+    const primaryId = "renounced-ownership-agent";
+    const id = agentId(primaryId);
 
     await tbn.freezeMinter();
     await pmm.renounceOwnership();
@@ -74,7 +77,7 @@ describe("PMM V2 - Security", function () {
     expect(await tbn.minter()).to.equal(pmmAddress);
     expect(await tbn.minterFrozen()).to.equal(true);
 
-    await pmm.connect(alice).createAgent(id, 15, 20);
+    await pmm.connect(alice).createAgent(primaryId, 15, 20);
     await time.increase(YEAR);
     await expect(pmm.connect(alice).claimTBN()).to.not.be.reverted;
   });

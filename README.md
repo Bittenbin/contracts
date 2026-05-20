@@ -9,7 +9,7 @@ The v2 runtime uses two contracts:
 
 ## Protocol Overview
 
-Each agent is identified by a `bytes32 agentId`, intended to be the keccak-256 hash of a creator-supplied primary ID such as an agent URL.
+Each agent is created from a human-readable primary ID such as an agent URL. The contract derives the canonical `bytes32 agentId` as `keccak256(bytes(primaryId))`, stores that hash, and emits the readable primary ID in `AgentCreated` for frontends and indexers.
 
 Each listed agent occupies a unique Pythagorean lattice point `(x, y, c)` where:
 
@@ -64,9 +64,9 @@ Separately, the accumulated USDC fee vault can be redeemed permissionlessly by b
 
 ## Core Functions
 
-`createAgent(bytes32 agentId, uint256 x, uint256 y)`
+`createAgent(string primaryId, uint256 x, uint256 y)`
 
-Lists a new agent at a unique valid Pythagorean coordinate. The caller pays `c` USDC plus 1% fee, receives initial x/y exposure, and may automatically solve proof-of-proximity if the transaction qualifies.
+Lists a new agent at a unique valid Pythagorean coordinate. The contract derives `agentId = keccak256(bytes(primaryId))`; the caller pays `c` USDC plus 1% fee, receives initial x/y exposure, and may automatically solve proof-of-proximity if the transaction qualifies.
 
 `relocateAgent(bytes32 agentId, uint256 currentX, uint256 currentY, uint256 newX, uint256 newY)`
 
@@ -108,9 +108,9 @@ Pure helpers for deriving destination and coordinate hashes used by the protocol
 
 ## Key Events
 
-`AgentCreated(bytes32 indexed agentId, address indexed creator, uint256 x, uint256 y, uint256 c)`
+`AgentCreated(bytes32 indexed agentId, string primaryId, address indexed creator, uint256 x, uint256 y, uint256 c)`
 
-Emitted when an agent is listed.
+Emitted when an agent is listed. `primaryId` is not indexed so event consumers can read the original human-readable ID.
 
 `AgentRelocated(bytes32 indexed agentId, address indexed participant, uint256 fromX, uint256 fromY, uint256 toX, uint256 toY, int256 deltaC)`
 
@@ -232,11 +232,11 @@ Common commands:
 python pmmV2-helper.py health
 python pmmV2-helper.py agent-id https://agent.example
 python pmmV2-helper.py validate 15 20
-python pmmV2-helper.py state <agent_id>
+python pmmV2-helper.py state <agent_id_hash>
 python pmmV2-helper.py approve-usdc 100
 python pmmV2-helper.py approve-tbn-burn 100
-python pmmV2-helper.py create <agent_id> 15 20
-python pmmV2-helper.py relocate <agent_id> 15 20 20 21
+python pmmV2-helper.py create https://agent.example 15 20
+python pmmV2-helper.py relocate <agent_id_hash> 15 20 20 21
 python pmmV2-helper.py redeem-fee-vault
 python pmmV2-helper.py claim-tbn
 ```

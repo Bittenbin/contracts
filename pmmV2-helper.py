@@ -18,12 +18,25 @@ Optional:
   MAINNET_RPC_URL=https://...
   USDC_ADDRESS=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
 
+Mainnet deployment:
+  Tenbinium: 0x279658aEBF8D15901f9e4362a97AeB4da54942c6
+  PythagoreanMarketMakerV2: 0x92223bC1D150FC7B17A136f7Ef9E39BFbC579DDd
+  PaymentToken: 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
+
+Key deployment txs:
+  TBN deploy: 0x2d4f4c3c6c8b33883ca04f478e46c022596f5a386cd1d3bae492a6813ddfe7ed
+  PMM deploy: 0x491bb8b649c1219441bafe9c84ddcb7cc80979dbc4916177166fa60e5c35dc80
+  setMinter: 0xc4bdf0940224506ab1e5d04f460e11bd91d3b65854ccb0c590f906cc1e3e384f
+  freezeMinter: 0xf5a76cd2d19f8295b46675b20c0bdc1b594af76ca440ceb78483a10911467ff0
+  PMM renounce: 0x09c96be536f5e903b60bbc559a689eea13f3de246e3263051c184cdaef701a7f
+  TBN renounce: 0xe013f0c4d5458d5405ab4f3c3138c72707f8d537af3ce4f188ee04e6b64e1ad3
+
 Examples:
   python pmmV2-helper.py health
   python pmmV2-helper.py agent-id https://agent.example
   python pmmV2-helper.py validate 15 20
-  python pmmV2-helper.py state <agent_id>
-  python pmmV2-helper.py create <agent_id> 15 20
+  python pmmV2-helper.py state <agent_id_hash>
+  python pmmV2-helper.py create https://agent.example 15 20
   python pmmV2-helper.py relocate <agent_id> 15 20 20 21
   python pmmV2-helper.py approve-tbn-burn 100
   python pmmV2-helper.py redeem-fee-vault
@@ -40,19 +53,20 @@ from eth_account import Account
 from web3 import Web3
 
 load_dotenv()
+load_dotenv(".env.local", override=True)
 
 RPC_URL = os.getenv("MAINNET_RPC_URL", "https://ethereum.publicnode.com")
 CHAIN_ID = 1
 USDC_ADDRESS = Web3.to_checksum_address(
     os.getenv("USDC_ADDRESS", "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48")
 )
-PMM_ADDRESS = os.getenv("PMM_V2_ADDRESS")
-TBN_ADDRESS = os.getenv("TBN_ADDRESS")
+PMM_ADDRESS = os.getenv("PMM_V2_ADDRESS", "0x92223bC1D150FC7B17A136f7Ef9E39BFbC579DDd")
+TBN_ADDRESS = os.getenv("TBN_ADDRESS", "0x279658aEBF8D15901f9e4362a97AeB4da54942c6")
 
 PMM_V2_ABI = [
     {
         "inputs": [
-            {"name": "agentId", "type": "bytes32"},
+            {"name": "primaryId", "type": "string"},
             {"name": "x", "type": "uint256"},
             {"name": "y", "type": "uint256"},
         ],
@@ -349,9 +363,9 @@ class PMMV2Helper:
         self.require_tbn()
         return self._send(self.tbn.functions.approve(self.pmm.address, amount))
 
-    def create_agent(self, agent_id: str, x: int, y: int):
+    def create_agent(self, primary_id: str, x: int, y: int):
         self.require_pmm()
-        return self._send(self.pmm.functions.createAgent(agent_id, x, y))
+        return self._send(self.pmm.functions.createAgent(primary_id, x, y))
 
     def relocate_agent(self, agent_id: str, current_x: int, current_y: int, new_x: int, new_y: int):
         self.require_pmm()
@@ -433,7 +447,7 @@ def main():
     )
 
     create = sub.add_parser("create")
-    create.add_argument("agent_id")
+    create.add_argument("primary_id")
     create.add_argument("x", type=int)
     create.add_argument("y", type=int)
 
@@ -471,7 +485,7 @@ def main():
     elif args.command == "approve-tbn-burn":
         print_result(helper.approve_tbn_burn(int(args.amount * 10**18)))
     elif args.command == "create":
-        print_result(helper.create_agent(args.agent_id, args.x, args.y))
+        print_result(helper.create_agent(args.primary_id, args.x, args.y))
     elif args.command == "relocate":
         print_result(
             helper.relocate_agent(

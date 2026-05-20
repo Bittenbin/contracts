@@ -90,9 +90,10 @@ contract PythagoreanMarketMakerV2 is Ownable, ReentrancyGuard {
     error NoRewardsToClaim();
     error InvalidFeeAmount();
     error PotentialOverflow();
+    error InvalidPrimaryId();
     error StaleLocation(uint256 actualX, uint256 actualY);
 
-    event AgentCreated(bytes32 indexed agentId, address indexed creator, uint256 x, uint256 y, uint256 c);
+    event AgentCreated(bytes32 indexed agentId, string primaryId, address indexed creator, uint256 x, uint256 y, uint256 c);
     event AgentRelocated(
         bytes32 indexed agentId,
         address indexed participant,
@@ -136,8 +137,9 @@ contract PythagoreanMarketMakerV2 is Ownable, ReentrancyGuard {
         paymentTokenUnit = 10 ** IERC20Metadata(paymentToken_).decimals();
     }
 
-    function createAgent(bytes32 agentId, uint256 x, uint256 y) external nonReentrant {
-        _createAgent(agentId, x, y);
+    function createAgent(string calldata primaryId, uint256 x, uint256 y) external nonReentrant {
+        if (bytes(primaryId).length == 0) revert InvalidPrimaryId();
+        _createAgent(keccak256(bytes(primaryId)), primaryId, x, y);
     }
 
     function relocateAgent(
@@ -219,7 +221,7 @@ contract PythagoreanMarketMakerV2 is Ownable, ReentrancyGuard {
         emit FeeVaultRedeemed(msg.sender, FEE_REDEMPTION_TBN_BURN, usdcRedeemed);
     }
 
-    function _createAgent(bytes32 agentId, uint256 x, uint256 y) internal {
+    function _createAgent(bytes32 agentId, string calldata primaryId, uint256 x, uint256 y) internal {
         if (agentId == bytes32(0)) revert InvalidAgentId();
         if (agentExists[agentId]) revert AgentAlreadyExists();
 
@@ -242,7 +244,7 @@ contract PythagoreanMarketMakerV2 is Ownable, ReentrancyGuard {
 
         _maybeSolveProof(agentId, x, y, c, c);
 
-        emit AgentCreated(agentId, msg.sender, x, y, c);
+        emit AgentCreated(agentId, primaryId, msg.sender, x, y, c);
         emit ExposureUpdated(agentId, msg.sender, x, y);
     }
 
