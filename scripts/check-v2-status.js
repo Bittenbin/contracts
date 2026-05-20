@@ -48,7 +48,7 @@ async function main() {
   console.log("nMax:", (await pmm.nMax()).toString());
   console.log("totalPower:", (await pmm.totalPower()).toString());
   console.log("totalTbnEmitted:", ethers.formatEther(await pmm.totalTbnEmitted()), "TBN");
-  console.log("accumulatedProtocolFees:", ethers.formatUnits(await pmm.accumulatedProtocolFees(), paymentDecimals));
+  console.log("feeVaultBalance:", ethers.formatUnits(await pmm.accumulatedProtocolFees(), paymentDecimals));
 
   console.log("\nTBN state:");
   console.log("minter:", await tbn.minter());

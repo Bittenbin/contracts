@@ -56,43 +56,96 @@ describe("PMM V2 - Fees", function () {
     expect(await tbn.totalSupply()).to.equal(supplyAfterClaim - ethers.parseEther("1"));
   });
 
-  it("distributes accumulated protocol fees to the fee recipient", async function () {
-    const { pmm, mockUSDC, alice, treasury } = await deployV2();
+  it("accumulates USDC fees from positive and negative deltaC transactions", async function () {
+    const { pmm, alice } = await deployV2();
+    const id = agentId("positive-and-negative-fees");
 
-    await pmm.connect(alice).createAgent(agentId("distribute-fees"), 3, 4);
+    await pmm.connect(alice).createAgent(id, 20, 21); // c=29, fee=0.29 USDC.
+    expect(await pmm.accumulatedProtocolFees()).to.equal(290000n);
 
-    const treasuryBefore = await mockUSDC.balanceOf(treasury.address);
+    // The refund leg charges 1% against the 24 USDC decrease.
+    await pmm.connect(alice).relocateAgent(id, 20, 21, 3, 4);
+    expect(await pmm.accumulatedProtocolFees()).to.equal(530000n);
+  });
 
-    await expect(pmm.distributeProtocolFees(0))
-      .to.emit(pmm, "ProtocolFeesDistributed")
-      .withArgs(treasury.address, 50000);
+  it("burns 100 TBN to redeem the full USDC fee vault", async function () {
+    const { pmm, tbn, mockUSDC, alice, bob } = await deployV2();
 
-    expect(await mockUSDC.balanceOf(treasury.address)).to.equal(treasuryBefore + 50000n);
+    await pmm.connect(alice).createAgent(agentId("fee-vault-solver"), 15, 20);
+    await time.increase(YEAR);
+    await pmm.connect(alice).claimTBN();
+
+    const vaultBalance = await pmm.accumulatedProtocolFees();
+    const bobUsdcBefore = await mockUSDC.balanceOf(bob.address);
+    const supplyBefore = await tbn.totalSupply();
+
+    // Redemption is permissionless: Bob can redeem if he holds and approves 100 TBN.
+    await tbn.connect(alice).transfer(bob.address, ethers.parseEther("100"));
+    await tbn.connect(bob).approve(await pmm.getAddress(), ethers.parseEther("100"));
+
+    await expect(pmm.connect(bob).redeemFeeVault())
+      .to.emit(pmm, "FeeVaultRedeemed")
+      .withArgs(bob.address, ethers.parseEther("100"), vaultBalance);
+
+    expect(await mockUSDC.balanceOf(bob.address)).to.equal(bobUsdcBefore + vaultBalance);
+    expect(await pmm.accumulatedProtocolFees()).to.equal(0);
+    expect(await tbn.totalSupply()).to.equal(supplyBefore - ethers.parseEther("100"));
+  });
+
+  it("rejects fee vault redemption with zero or insufficient TBN approval", async function () {
+    const { pmm, tbn, alice, bob } = await deployV2();
+
+    await pmm.connect(alice).createAgent(agentId("insufficient-approval-redemption"), 15, 20);
+    await time.increase(YEAR);
+    await pmm.connect(alice).claimTBN();
+    await tbn.connect(alice).transfer(bob.address, ethers.parseEther("100"));
+
+    // Holding enough TBN is not enough; PMM must be approved to burn the fixed 100 TBN.
+    await tbn.connect(bob).approve(await pmm.getAddress(), 0);
+    await expect(pmm.connect(bob).redeemFeeVault()).to.be.reverted;
+
+    await tbn.connect(bob).approve(await pmm.getAddress(), ethers.parseEther("99"));
+    await expect(pmm.connect(bob).redeemFeeVault()).to.be.reverted;
+  });
+
+  it("burns exactly 100 TBN even when the redeemer approves more", async function () {
+    const { pmm, tbn, mockUSDC, alice, bob } = await deployV2();
+
+    await pmm.connect(alice).createAgent(agentId("over-approval-redemption"), 15, 20);
+    await time.increase(YEAR);
+    await pmm.connect(alice).claimTBN();
+
+    const vaultBalance = await pmm.accumulatedProtocolFees();
+    await tbn.connect(alice).transfer(bob.address, ethers.parseEther("101"));
+    await tbn.connect(bob).approve(await pmm.getAddress(), ethers.parseEther("101"));
+
+    const bobTbnBefore = await tbn.balanceOf(bob.address);
+    const bobUsdcBefore = await mockUSDC.balanceOf(bob.address);
+
+    await pmm.connect(bob).redeemFeeVault();
+
+    expect(bobTbnBefore - await tbn.balanceOf(bob.address)).to.equal(ethers.parseEther("100"));
+    expect(await tbn.allowance(bob.address, await pmm.getAddress())).to.equal(ethers.parseEther("1"));
+    expect(await mockUSDC.balanceOf(bob.address)).to.equal(bobUsdcBefore + vaultBalance);
     expect(await pmm.accumulatedProtocolFees()).to.equal(0);
   });
 
-  it("rejects invalid fee distribution amounts", async function () {
-    const { pmm, alice } = await deployV2();
+  it("rejects empty or unfunded fee vault redemptions", async function () {
+    const { pmm, tbn, alice, bob } = await deployV2();
 
-    await expect(pmm.distributeProtocolFees(0))
+    await expect(pmm.connect(alice).redeemFeeVault())
       .to.be.revertedWithCustomError(pmm, "InvalidFeeAmount");
 
-    await pmm.connect(alice).createAgent(agentId("invalid-fee-amount"), 3, 4);
+    await pmm.connect(alice).createAgent(agentId("unfunded-redemption"), 15, 20);
 
-    await expect(pmm.distributeProtocolFees(50001))
+    await expect(pmm.connect(bob).redeemFeeVault()).to.be.reverted;
+
+    await time.increase(YEAR);
+    await pmm.connect(alice).claimTBN();
+    await tbn.connect(alice).approve(await pmm.getAddress(), ethers.parseEther("100"));
+    await pmm.connect(alice).redeemFeeVault();
+
+    await expect(pmm.connect(alice).redeemFeeVault())
       .to.be.revertedWithCustomError(pmm, "InvalidFeeAmount");
-  });
-
-  it("updates the fee recipient and rejects the zero address", async function () {
-    const { pmm, bob } = await deployV2();
-
-    await expect(pmm.updateFeeRecipient(bob.address))
-      .to.emit(pmm, "FeeRecipientUpdated")
-      .withArgs(bob.address);
-
-    expect(await pmm.feeRecipient()).to.equal(bob.address);
-
-    await expect(pmm.updateFeeRecipient(ethers.ZeroAddress))
-      .to.be.revertedWithCustomError(pmm, "InvalidAddress");
   });
 });

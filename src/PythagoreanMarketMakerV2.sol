@@ -24,6 +24,7 @@ contract PythagoreanMarketMakerV2 is Ownable, Pausable, ReentrancyGuard {
     uint256 public constant MAX_COORDINATE_VALUE = 1e9;
     uint256 public constant MAX_HYPOTENUSE = 1.5e9;
     uint256 public constant TBN_BURN_FEE = 1 ether;
+    uint256 public constant FEE_REDEMPTION_TBN_BURN = 100 ether;
     uint256 public constant REWARD_PRECISION = 1e18;
     uint256 public constant YEAR = 365 days;
     uint256 public constant INITIAL_EMISSION_YEARS = 20;
@@ -34,8 +35,6 @@ contract PythagoreanMarketMakerV2 is Ownable, Pausable, ReentrancyGuard {
     IERC20 public immutable paymentToken;
     Tenbinium public immutable tbn;
     uint256 public immutable paymentTokenUnit;
-
-    address public feeRecipient;
 
     uint256 public accumulatedProtocolFees;
     uint256 public totalStakedValue;
@@ -118,19 +117,16 @@ contract PythagoreanMarketMakerV2 is Ownable, Pausable, ReentrancyGuard {
     event SolverPowerUpdated(address indexed solver, uint256 power, uint256 totalPower);
     event TbnClaimed(address indexed solver, uint256 amount);
     event TbnBurnedForUsedDestination(address indexed payer, bytes32 indexed destinationHash, uint256 amount);
-    event ProtocolFeesDistributed(address indexed recipient, uint256 amount);
-    event FeeRecipientUpdated(address indexed recipient);
+    event FeeVaultRedeemed(address indexed redeemer, uint256 tbnBurned, uint256 usdcRedeemed);
 
     constructor(
         address paymentToken_,
         address tbn_,
-        address feeRecipient_,
         address initialOwner_
     ) Ownable(initialOwner_) {
         if (
             paymentToken_ == address(0) ||
             tbn_ == address(0) ||
-            feeRecipient_ == address(0) ||
             initialOwner_ == address(0)
         ) {
             revert InvalidAddress();
@@ -139,7 +135,6 @@ contract PythagoreanMarketMakerV2 is Ownable, Pausable, ReentrancyGuard {
         paymentToken = IERC20(paymentToken_);
         tbn = Tenbinium(tbn_);
         paymentTokenUnit = 10 ** IERC20Metadata(paymentToken_).decimals();
-        feeRecipient = feeRecipient_;
     }
 
     function createAgent(bytes32 agentId, uint256 x, uint256 y) external whenNotPaused nonReentrant {
@@ -214,20 +209,15 @@ contract PythagoreanMarketMakerV2 is Ownable, Pausable, ReentrancyGuard {
         return keccak256(abi.encodePacked(x, y));
     }
 
-    function distributeProtocolFees(uint256 amount) external onlyOwner nonReentrant returns (uint256 totalAmount) {
-        totalAmount = amount == 0 ? accumulatedProtocolFees : amount;
-        if (totalAmount == 0 || totalAmount > accumulatedProtocolFees) revert InvalidFeeAmount();
+    function redeemFeeVault() external nonReentrant returns (uint256 usdcRedeemed) {
+        usdcRedeemed = accumulatedProtocolFees;
+        if (usdcRedeemed == 0) revert InvalidFeeAmount();
 
-        accumulatedProtocolFees -= totalAmount;
+        accumulatedProtocolFees = 0;
 
-        paymentToken.safeTransfer(feeRecipient, totalAmount);
-        emit ProtocolFeesDistributed(feeRecipient, totalAmount);
-    }
-
-    function updateFeeRecipient(address newFeeRecipient) external onlyOwner {
-        if (newFeeRecipient == address(0)) revert InvalidAddress();
-        feeRecipient = newFeeRecipient;
-        emit FeeRecipientUpdated(newFeeRecipient);
+        ERC20Burnable(address(tbn)).burnFrom(msg.sender, FEE_REDEMPTION_TBN_BURN);
+        paymentToken.safeTransfer(msg.sender, usdcRedeemed);
+        emit FeeVaultRedeemed(msg.sender, FEE_REDEMPTION_TBN_BURN, usdcRedeemed);
     }
 
     function pause() external onlyOwner {

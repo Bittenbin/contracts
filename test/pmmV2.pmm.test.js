@@ -105,6 +105,23 @@ describe("PMM V2 - PMM", function () {
       .to.be.revertedWithCustomError(pmm, "InvalidPythagoreanCoordinate");
   });
 
+  it("rejects relocating an existing agent to the origin", async function () {
+    const { pmm, alice } = await deployV2();
+    const id = agentId("origin-relocation-agent");
+
+    await pmm.connect(alice).createAgent(id, 3, 4);
+
+    // Agents cannot be reduced to (0,0,$0); locations must remain positive triples.
+    await expect(pmm.connect(alice).relocateAgent(id, 3, 4, 0, 0))
+      .to.be.revertedWithCustomError(pmm, "InvalidPythagoreanCoordinate");
+
+    const state = await pmm.getAgentState(id);
+    expect(state.x).to.equal(3);
+    expect(state.y).to.equal(4);
+    expect(state.c).to.equal(5);
+    expect(await pmm.totalStakedValue()).to.equal(5);
+  });
+
   it("keeps totalStakedValue equal to the sum of current agent hypotenuses", async function () {
     const { pmm, alice, bob } = await deployV2();
     const a = agentId("tvl-a");

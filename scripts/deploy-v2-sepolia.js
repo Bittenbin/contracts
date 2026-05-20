@@ -13,7 +13,6 @@ async function main() {
   const [deployer] = await ethers.getSigners();
   const deployerBalance = await ethers.provider.getBalance(deployer.address);
   const paymentToken = process.env.PAYMENT_TOKEN || DEFAULT_SEPOLIA_USDC;
-  const feeRecipient = process.env.FEE_RECIPIENT || deployer.address;
   const initialOwner = process.env.INITIAL_OWNER || deployer.address;
   const freezeTbnMinter = process.env.FREEZE_TBN_MINTER === "true";
 
@@ -21,7 +20,6 @@ async function main() {
   console.log("Deployer:", deployer.address);
   console.log("Deployer ETH:", ethers.formatEther(deployerBalance));
   console.log("Payment token:", paymentToken);
-  console.log("Fee recipient:", feeRecipient);
   console.log("Initial owner:", initialOwner);
   console.log("Freeze TBN minter:", freezeTbnMinter);
 
@@ -40,7 +38,6 @@ async function main() {
   const pmm = await PythagoreanMarketMakerV2.deploy(
     paymentToken,
     tbnAddress,
-    feeRecipient,
     initialOwner
   );
   await pmm.waitForDeployment();
@@ -70,8 +67,7 @@ async function main() {
       PaymentToken: paymentToken
     },
     roles: {
-      initialOwner,
-      feeRecipient
+      initialOwner
     },
     freezeTbnMinter,
     deployer: deployer.address,
@@ -88,7 +84,7 @@ async function main() {
   console.log("Next verification commands:");
   console.log(`npx hardhat verify --network sepolia ${tbnAddress} ${initialOwner}`);
   console.log(
-    `npx hardhat verify --network sepolia ${pmmAddress} ${paymentToken} ${tbnAddress} ${feeRecipient} ${initialOwner}`
+    `npx hardhat verify --network sepolia ${pmmAddress} ${paymentToken} ${tbnAddress} ${initialOwner}`
   );
 }
 

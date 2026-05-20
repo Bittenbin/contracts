@@ -1,7 +1,8 @@
 const { expect } = require("chai");
+const { ethers } = require("hardhat");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
-const { agentId, deployV2 } = require("./helpers/deployV2");
+const { YEAR, agentId, deployV2 } = require("./helpers/deployV2");
 
 describe("PMM V2 - Security", function () {
   it("reverts stale relocations before executing from an unexpected location", async function () {
@@ -29,12 +30,27 @@ describe("PMM V2 - Security", function () {
   });
 
   it("restricts admin functions to the owner", async function () {
-    const { pmm, alice, bob } = await deployV2();
+    const { pmm, alice } = await deployV2();
 
     await expect(pmm.connect(alice).pause()).to.be.reverted;
     await expect(pmm.connect(alice).unpause()).to.be.reverted;
-    await expect(pmm.connect(alice).updateFeeRecipient(alice.address)).to.be.reverted;
-    await expect(pmm.connect(alice).distributeProtocolFees(0)).to.be.reverted;
+  });
+
+  it("allows any TBN holder to redeem the fee vault", async function () {
+    const { pmm, tbn, mockUSDC, alice, bob } = await deployV2();
+
+    await pmm.connect(alice).createAgent(agentId("permissionless-fee-vault"), 15, 20);
+    await time.increase(YEAR);
+    await pmm.connect(alice).claimTBN();
+
+    const vaultBalance = await pmm.accumulatedProtocolFees();
+    const bobUsdcBefore = await mockUSDC.balanceOf(bob.address);
+
+    await tbn.connect(alice).transfer(bob.address, ethers.parseEther("100"));
+    await tbn.connect(bob).approve(await pmm.getAddress(), ethers.parseEther("100"));
+
+    await pmm.connect(bob).redeemFeeVault();
+    expect(await mockUSDC.balanceOf(bob.address)).to.equal(bobUsdcBefore + vaultBalance);
   });
 
   it("pause blocks PMM mutations but still allows reward claims", async function () {

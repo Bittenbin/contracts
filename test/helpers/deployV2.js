@@ -22,7 +22,6 @@ async function deployV2() {
   const pmm = await PythagoreanMarketMakerV2.deploy(
     await mockUSDC.getAddress(),
     await tbn.getAddress(),
-    treasury.address,
     owner.address
   );
   await pmm.waitForDeployment();

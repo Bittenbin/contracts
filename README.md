@@ -24,7 +24,7 @@ new listing:  c
 relocation:   newC - oldC
 ```
 
-Positive `deltaC` requires USDC payment plus a 1% protocol fee. Negative `deltaC` returns USDC minus a 1% protocol fee. Zero `deltaC` relocations do not pay or receive USDC, but can still trigger the separate TBN burn if the destination was previously used as a proof destination.
+Positive `deltaC` requires USDC payment plus a 1% protocol fee. Negative `deltaC` returns USDC minus a 1% protocol fee. These USDC fees accumulate in a fee vault that anyone can redeem by burning 100 TBN. Zero `deltaC` relocations do not pay or receive USDC, but can still trigger the separate TBN burn if the destination was previously used as a proof destination.
 
 ## Proof-Of-Proximity
 
@@ -60,6 +60,8 @@ If total solver power later falls to zero, emissions for that time window are no
 
 Any transaction that enters a destination previously used as a proof-solving destination burns `1 TBN` from the caller.
 
+Separately, the accumulated USDC fee vault can be redeemed permissionlessly by burning `100 TBN`. The redeemer receives the full vault balance, the vault resets to zero, and the burned TBN is permanently removed from supply.
+
 ## Core Functions
 
 `createAgent(bytes32 agentId, uint256 x, uint256 y)`
@@ -74,13 +76,9 @@ Moves an existing agent from the caller's expected current coordinate to a new v
 
 Settles and mints the caller's accrued TBN rewards.
 
-`distributeProtocolFees(uint256 amount)`
+`redeemFeeVault()`
 
-Owner-only. Distributes accumulated USDC protocol fees to `feeRecipient`. Passing `0` distributes all accumulated fees.
-
-`updateFeeRecipient(address newFeeRecipient)`
-
-Owner-only. Updates the fee recipient address.
+Burns `100 TBN` from the caller and transfers the full accumulated USDC fee vault to the caller.
 
 `pause()` and `unpause()`
 
@@ -142,13 +140,9 @@ Emitted when a solver claims TBN.
 
 Emitted when the 1 TBN used-destination fee is burned.
 
-`ProtocolFeesDistributed(address indexed recipient, uint256 amount)`
+`FeeVaultRedeemed(address indexed redeemer, uint256 tbnBurned, uint256 usdcRedeemed)`
 
-Emitted when accumulated USDC fees are distributed.
-
-`FeeRecipientUpdated(address indexed recipient)`
-
-Emitted when the fee recipient is updated.
+Emitted when a caller burns TBN to redeem the accumulated USDC fee vault.
 
 ## Development
 
@@ -198,7 +192,6 @@ Override deployment parameters with:
 
 ```bash
 PAYMENT_TOKEN=0x...
-FEE_RECIPIENT=0x...
 INITIAL_OWNER=0x...
 FREEZE_TBN_MINTER=true # optional, one-way
 ```
@@ -217,7 +210,7 @@ Ownership renounce checklist:
 1. Verify `Tenbinium.minter()` is the deployed PMM v2 address.
 2. Call `Tenbinium.freezeMinter()` if it was not frozen during deployment.
 3. Verify `Tenbinium.minterFrozen()` is `true`.
-4. Transfer PMM v2 ownership to a multisig, or call `renounceOwnership()` only if the protocol no longer needs `pause`, `unpause`, `updateFeeRecipient`, or `distributeProtocolFees`.
+4. Transfer PMM v2 ownership to a multisig, or call `renounceOwnership()` only if the protocol no longer needs `pause` or `unpause`.
 5. Transfer TBN ownership to a multisig, or call `renounceOwnership()` after `freezeMinter()` if no further owner controls are desired.
 
 ## Python Cookbooks
@@ -247,10 +240,6 @@ python pmm_cookbook_testnet.py create <agent_id> 15 20
 python pmm_cookbook_testnet.py relocate <agent_id> 15 20 20 21
 python pmm_cookbook_testnet.py claim-tbn
 ```
-
-## Legacy V1
-
-`src/PythagoreanMarketMaker.sol` is the legacy v1 contract. PMM v2 does not depend on it at runtime.
 
 ## License
 
