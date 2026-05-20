@@ -76,11 +76,11 @@ Settles and mints the caller's accrued TBN rewards.
 
 `distributeProtocolFees(uint256 amount)`
 
-Owner-only. Distributes accumulated USDC protocol fees 50/50 between `ownerFeeRecipient` and `protocolFeeRecipient`. Passing `0` distributes all accumulated fees.
+Owner-only. Distributes accumulated USDC protocol fees to `feeRecipient`. Passing `0` distributes all accumulated fees.
 
-`updateFeeRecipients(address newOwnerRecipient, address newProtocolRecipient)`
+`updateFeeRecipient(address newFeeRecipient)`
 
-Owner-only. Updates the two fee recipient addresses.
+Owner-only. Updates the fee recipient address.
 
 `pause()` and `unpause()`
 
@@ -142,13 +142,13 @@ Emitted when a solver claims TBN.
 
 Emitted when the 1 TBN used-destination fee is burned.
 
-`ProtocolFeesDistributed(address indexed ownerRecipient, address indexed protocolRecipient, uint256 ownerAmount, uint256 protocolAmount)`
+`ProtocolFeesDistributed(address indexed recipient, uint256 amount)`
 
 Emitted when accumulated USDC fees are distributed.
 
-`FeeRecipientsUpdated(address indexed ownerRecipient, address indexed protocolRecipient)`
+`FeeRecipientUpdated(address indexed recipient)`
 
-Emitted when fee recipients are updated.
+Emitted when the fee recipient is updated.
 
 ## Development
 
@@ -198,8 +198,7 @@ Override deployment parameters with:
 
 ```bash
 PAYMENT_TOKEN=0x...
-OWNER_FEE_RECIPIENT=0x...
-PROTOCOL_FEE_RECIPIENT=0x...
+FEE_RECIPIENT=0x...
 INITIAL_OWNER=0x...
 FREEZE_TBN_MINTER=true # optional, one-way
 ```
@@ -218,7 +217,7 @@ Ownership renounce checklist:
 1. Verify `Tenbinium.minter()` is the deployed PMM v2 address.
 2. Call `Tenbinium.freezeMinter()` if it was not frozen during deployment.
 3. Verify `Tenbinium.minterFrozen()` is `true`.
-4. Transfer PMM v2 ownership to a multisig, or call `renounceOwnership()` only if the protocol no longer needs `pause`, `unpause`, `updateFeeRecipients`, or `distributeProtocolFees`.
+4. Transfer PMM v2 ownership to a multisig, or call `renounceOwnership()` only if the protocol no longer needs `pause`, `unpause`, `updateFeeRecipient`, or `distributeProtocolFees`.
 5. Transfer TBN ownership to a multisig, or call `renounceOwnership()` after `freezeMinter()` if no further owner controls are desired.
 
 ## Python Cookbooks

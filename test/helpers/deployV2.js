@@ -23,7 +23,6 @@ async function deployV2() {
     await mockUSDC.getAddress(),
     await tbn.getAddress(),
     treasury.address,
-    protocol.address,
     owner.address
   );
   await pmm.waitForDeployment();

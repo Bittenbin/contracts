@@ -33,7 +33,7 @@ describe("PMM V2 - Security", function () {
 
     await expect(pmm.connect(alice).pause()).to.be.reverted;
     await expect(pmm.connect(alice).unpause()).to.be.reverted;
-    await expect(pmm.connect(alice).updateFeeRecipients(alice.address, bob.address)).to.be.reverted;
+    await expect(pmm.connect(alice).updateFeeRecipient(alice.address)).to.be.reverted;
     await expect(pmm.connect(alice).distributeProtocolFees(0)).to.be.reverted;
   });
 

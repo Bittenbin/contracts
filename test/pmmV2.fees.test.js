@@ -56,20 +56,18 @@ describe("PMM V2 - Fees", function () {
     expect(await tbn.totalSupply()).to.equal(supplyAfterClaim - ethers.parseEther("1"));
   });
 
-  it("distributes accumulated protocol fees evenly", async function () {
-    const { pmm, mockUSDC, alice, treasury, protocol } = await deployV2();
+  it("distributes accumulated protocol fees to the fee recipient", async function () {
+    const { pmm, mockUSDC, alice, treasury } = await deployV2();
 
     await pmm.connect(alice).createAgent(agentId("distribute-fees"), 3, 4);
 
     const treasuryBefore = await mockUSDC.balanceOf(treasury.address);
-    const protocolBefore = await mockUSDC.balanceOf(protocol.address);
 
     await expect(pmm.distributeProtocolFees(0))
       .to.emit(pmm, "ProtocolFeesDistributed")
-      .withArgs(treasury.address, protocol.address, 25000, 25000);
+      .withArgs(treasury.address, 50000);
 
-    expect(await mockUSDC.balanceOf(treasury.address)).to.equal(treasuryBefore + 25000n);
-    expect(await mockUSDC.balanceOf(protocol.address)).to.equal(protocolBefore + 25000n);
+    expect(await mockUSDC.balanceOf(treasury.address)).to.equal(treasuryBefore + 50000n);
     expect(await pmm.accumulatedProtocolFees()).to.equal(0);
   });
 
@@ -85,20 +83,16 @@ describe("PMM V2 - Fees", function () {
       .to.be.revertedWithCustomError(pmm, "InvalidFeeAmount");
   });
 
-  it("updates fee recipients and rejects zero addresses", async function () {
-    const { pmm, bob, treasury, protocol } = await deployV2();
+  it("updates the fee recipient and rejects the zero address", async function () {
+    const { pmm, bob } = await deployV2();
 
-    await expect(pmm.updateFeeRecipients(bob.address, treasury.address))
-      .to.emit(pmm, "FeeRecipientsUpdated")
-      .withArgs(bob.address, treasury.address);
+    await expect(pmm.updateFeeRecipient(bob.address))
+      .to.emit(pmm, "FeeRecipientUpdated")
+      .withArgs(bob.address);
 
-    expect(await pmm.ownerFeeRecipient()).to.equal(bob.address);
-    expect(await pmm.protocolFeeRecipient()).to.equal(treasury.address);
+    expect(await pmm.feeRecipient()).to.equal(bob.address);
 
-    await expect(pmm.updateFeeRecipients(ethers.ZeroAddress, protocol.address))
-      .to.be.revertedWithCustomError(pmm, "InvalidAddress");
-
-    await expect(pmm.updateFeeRecipients(protocol.address, ethers.ZeroAddress))
+    await expect(pmm.updateFeeRecipient(ethers.ZeroAddress))
       .to.be.revertedWithCustomError(pmm, "InvalidAddress");
   });
 });
