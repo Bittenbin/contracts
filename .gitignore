@@ -18,6 +18,8 @@ accounts.txt
 
 # Dotenv file
 .env
+.env.local
+.env.*.local
 
 # Mac
 .DS_Store

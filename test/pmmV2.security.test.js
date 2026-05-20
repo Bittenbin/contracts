@@ -29,11 +29,18 @@ describe("PMM V2 - Security", function () {
       .to.be.revertedWithCustomError(pmm, "InsufficientExposure");
   });
 
-  it("restricts admin functions to the owner", async function () {
-    const { pmm, alice } = await deployV2();
+  it("restricts ownership actions to the owner", async function () {
+    const { pmm, tbn, alice } = await deployV2();
 
-    await expect(pmm.connect(alice).pause()).to.be.reverted;
-    await expect(pmm.connect(alice).unpause()).to.be.reverted;
+    await expect(pmm.connect(alice).renounceOwnership())
+      .to.be.revertedWithCustomError(pmm, "OwnableUnauthorizedAccount")
+      .withArgs(alice.address);
+    await expect(tbn.connect(alice).setMinter(alice.address))
+      .to.be.revertedWithCustomError(tbn, "OwnableUnauthorizedAccount")
+      .withArgs(alice.address);
+    await expect(tbn.connect(alice).freezeMinter())
+      .to.be.revertedWithCustomError(tbn, "OwnableUnauthorizedAccount")
+      .withArgs(alice.address);
   });
 
   it("allows any TBN holder to redeem the fee vault", async function () {
@@ -53,18 +60,22 @@ describe("PMM V2 - Security", function () {
     expect(await mockUSDC.balanceOf(bob.address)).to.equal(bobUsdcBefore + vaultBalance);
   });
 
-  it("pause blocks PMM mutations but still allows reward claims", async function () {
-    const { pmm, alice } = await deployV2();
-    const id = agentId("paused-claim-agent");
+  it("supports trust-maximized ownership renounce after freezing the TBN minter", async function () {
+    const { pmm, tbn, alice } = await deployV2();
+    const pmmAddress = await pmm.getAddress();
+    const id = agentId("renounced-ownership-agent");
+
+    await tbn.freezeMinter();
+    await pmm.renounceOwnership();
+    await tbn.renounceOwnership();
+
+    expect(await pmm.owner()).to.equal(ethers.ZeroAddress);
+    expect(await tbn.owner()).to.equal(ethers.ZeroAddress);
+    expect(await tbn.minter()).to.equal(pmmAddress);
+    expect(await tbn.minterFrozen()).to.equal(true);
 
     await pmm.connect(alice).createAgent(id, 15, 20);
-    await time.increase(24 * 60 * 60);
-    await pmm.pause();
-
-    await expect(pmm.connect(alice).createAgent(agentId("paused-create"), 3, 4)).to.be.reverted;
-    await expect(pmm.connect(alice).relocateAgent(id, 15, 20, 3, 4)).to.be.reverted;
-
-    // claimTBN intentionally remains available while PMM movement is paused.
+    await time.increase(YEAR);
     await expect(pmm.connect(alice).claimTBN()).to.not.be.reverted;
   });
 });

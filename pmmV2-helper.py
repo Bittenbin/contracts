@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-PMM V2 Cookbook - Ethereum Mainnet
+PMM V2 Helper - Ethereum Mainnet
 
 This script provides read and transaction helpers for the fresh PMM v2 contracts:
 - PythagoreanMarketMakerV2
@@ -15,17 +15,19 @@ Required once PMM v2 is deployed:
   TBN_ADDRESS=0x...
 
 Optional:
-  ETHEREUM_RPC_URL=https://...
+  MAINNET_RPC_URL=https://...
   USDC_ADDRESS=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
 
 Examples:
-  python pmm_cookbook_mainnet.py health
-  python pmm_cookbook_mainnet.py agent-id https://agent.example
-  python pmm_cookbook_mainnet.py validate 15 20
-  python pmm_cookbook_mainnet.py state <agent_id>
-  python pmm_cookbook_mainnet.py create <agent_id> 15 20
-  python pmm_cookbook_mainnet.py relocate <agent_id> 15 20 20 21
-  python pmm_cookbook_mainnet.py claim-tbn
+  python pmmV2-helper.py health
+  python pmmV2-helper.py agent-id https://agent.example
+  python pmmV2-helper.py validate 15 20
+  python pmmV2-helper.py state <agent_id>
+  python pmmV2-helper.py create <agent_id> 15 20
+  python pmmV2-helper.py relocate <agent_id> 15 20 20 21
+  python pmmV2-helper.py approve-tbn-burn 100
+  python pmmV2-helper.py redeem-fee-vault
+  python pmmV2-helper.py claim-tbn
 """
 
 import argparse
@@ -39,7 +41,7 @@ from web3 import Web3
 
 load_dotenv()
 
-RPC_URL = os.getenv("ETHEREUM_RPC_URL", "https://ethereum.publicnode.com")
+RPC_URL = os.getenv("MAINNET_RPC_URL", "https://ethereum.publicnode.com")
 CHAIN_ID = 1
 USDC_ADDRESS = Web3.to_checksum_address(
     os.getenv("USDC_ADDRESS", "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48")
@@ -126,6 +128,18 @@ PMM_V2_ABI = [
     },
     {
         "inputs": [],
+        "name": "redeemFeeVault",
+        "outputs": [{"name": "usdcRedeemed", "type": "uint256"}],
+        "type": "function",
+    },
+    {
+        "inputs": [],
+        "name": "FEE_REDEMPTION_TBN_BURN",
+        "outputs": [{"name": "", "type": "uint256"}],
+        "type": "function",
+    },
+    {
+        "inputs": [],
         "name": "totalStakedValue",
         "outputs": [{"name": "", "type": "uint256"}],
         "type": "function",
@@ -194,7 +208,7 @@ ERC20_ABI = [
 ]
 
 
-class PMMV2Cookbook:
+class PMMV2Helper:
     def __init__(self, private_key: Optional[str] = None):
         self.w3 = Web3(Web3.HTTPProvider(RPC_URL))
         self.account = Account.from_key(private_key) if private_key else None
@@ -270,7 +284,7 @@ class PMMV2Cookbook:
             "usdc": self.usdc.address,
             "totalStakedValue": self.pmm.functions.totalStakedValue().call(),
             "nMax": self.pmm.functions.nMax().call(),
-            "accumulatedProtocolFees": self.format_usdc(
+            "feeVaultBalance": self.format_usdc(
                 self.pmm.functions.accumulatedProtocolFees().call()
             ),
         }
@@ -330,7 +344,7 @@ class PMMV2Cookbook:
         self.require_pmm()
         return self._send(self.usdc.functions.approve(self.pmm.address, amount))
 
-    def approve_tbn_burn(self, amount: int = 10**18):
+    def approve_tbn_burn(self, amount: int):
         self.require_pmm()
         self.require_tbn()
         return self._send(self.tbn.functions.approve(self.pmm.address, amount))
@@ -348,6 +362,11 @@ class PMMV2Cookbook:
     def claim_tbn(self):
         self.require_pmm()
         return self._send(self.pmm.functions.claimTBN())
+
+    def redeem_fee_vault(self):
+        self.require_pmm()
+        self.require_tbn()
+        return self._send(self.pmm.functions.redeemFeeVault())
 
     def _send(self, function_call):
         self.require_account()
@@ -373,7 +392,7 @@ def print_result(result: Any):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="PMM V2 Ethereum mainnet cookbook")
+    parser = argparse.ArgumentParser(description="PMM V2 Ethereum mainnet helper")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("health")
@@ -404,7 +423,14 @@ def main():
     approve_usdc = sub.add_parser("approve-usdc")
     approve_usdc.add_argument("amount", type=float, help="USDC amount")
 
-    sub.add_parser("approve-tbn-burn")
+    approve_tbn_burn = sub.add_parser("approve-tbn-burn")
+    approve_tbn_burn.add_argument(
+        "amount",
+        type=float,
+        nargs="?",
+        default=100,
+        help="TBN amount to approve for PMM burns; defaults to 100 for fee-vault redemption",
+    )
 
     create = sub.add_parser("create")
     create.add_argument("agent_id")
@@ -419,40 +445,43 @@ def main():
     relocate.add_argument("new_y", type=int)
 
     sub.add_parser("claim-tbn")
+    sub.add_parser("redeem-fee-vault")
 
     args = parser.parse_args()
-    cookbook = PMMV2Cookbook(os.getenv("PRIVATE_KEY"))
+    helper = PMMV2Helper(os.getenv("PRIVATE_KEY"))
 
     if args.command == "health":
-        print_result(cookbook.health())
+        print_result(helper.health())
     elif args.command == "agent-id":
-        print(cookbook.agent_id(args.primary_id))
+        print(helper.agent_id(args.primary_id))
     elif args.command == "validate":
-        print_result(cookbook.validate_coordinate(args.x, args.y))
+        print_result(helper.validate_coordinate(args.x, args.y))
     elif args.command == "state":
-        print_result(cookbook.get_agent_state(args.agent_id))
+        print_result(helper.get_agent_state(args.agent_id))
     elif args.command == "exposure":
-        print_result(cookbook.get_exposure(args.agent_id, args.participant))
+        print_result(helper.get_exposure(args.agent_id, args.participant))
     elif args.command == "rewards":
-        print_result(cookbook.get_solver_rewards(args.solver))
+        print_result(helper.get_solver_rewards(args.solver))
     elif args.command == "connected":
-        print(cookbook.are_connected(args.agent_a, args.agent_b))
+        print(helper.are_connected(args.agent_a, args.agent_b))
     elif args.command == "balances":
-        print_result(cookbook.balances(args.address))
+        print_result(helper.balances(args.address))
     elif args.command == "approve-usdc":
-        print_result(cookbook.approve_usdc(int(args.amount * cookbook.usdc_unit)))
+        print_result(helper.approve_usdc(int(args.amount * helper.usdc_unit)))
     elif args.command == "approve-tbn-burn":
-        print_result(cookbook.approve_tbn_burn())
+        print_result(helper.approve_tbn_burn(int(args.amount * 10**18)))
     elif args.command == "create":
-        print_result(cookbook.create_agent(args.agent_id, args.x, args.y))
+        print_result(helper.create_agent(args.agent_id, args.x, args.y))
     elif args.command == "relocate":
         print_result(
-            cookbook.relocate_agent(
+            helper.relocate_agent(
                 args.agent_id, args.current_x, args.current_y, args.new_x, args.new_y
             )
         )
     elif args.command == "claim-tbn":
-        print_result(cookbook.claim_tbn())
+        print_result(helper.claim_tbn())
+    elif args.command == "redeem-fee-vault":
+        print_result(helper.redeem_fee_vault())
 
 
 if __name__ == "__main__":

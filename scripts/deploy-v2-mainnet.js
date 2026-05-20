@@ -26,6 +26,9 @@ async function main() {
   const paymentToken = process.env.PAYMENT_TOKEN || MAINNET_USDC;
   const initialOwner = process.env.INITIAL_OWNER || deployer.address;
   const freezeTbnMinter = process.env.FREEZE_TBN_MINTER === "true";
+  const renouncePmmOwnership = process.env.RENOUNCE_PMM_OWNERSHIP === "true";
+  const renounceTbnOwnership = process.env.RENOUNCE_TBN_OWNERSHIP === "true";
+  const deployerIsInitialOwner = initialOwner.toLowerCase() === deployer.address.toLowerCase();
 
   console.log("Deploying PMM v2 to Ethereum mainnet");
   console.log("Deployer:", deployer.address);
@@ -33,9 +36,19 @@ async function main() {
   console.log("Payment token:", paymentToken);
   console.log("Initial owner:", initialOwner);
   console.log("Freeze TBN minter:", freezeTbnMinter);
+  console.log("Renounce PMM ownership:", renouncePmmOwnership);
+  console.log("Renounce TBN ownership:", renounceTbnOwnership);
 
   if (deployerBalance < ethers.parseEther("0.05")) {
     throw new Error("Deployer balance is below the recommended 0.05 ETH minimum.");
+  }
+
+  if (renounceTbnOwnership && !freezeTbnMinter) {
+    throw new Error("RENOUNCE_TBN_OWNERSHIP=true requires FREEZE_TBN_MINTER=true.");
+  }
+
+  if (!deployerIsInitialOwner && (freezeTbnMinter || renouncePmmOwnership || renounceTbnOwnership)) {
+    throw new Error("Owner actions require INITIAL_OWNER to be the deployer address.");
   }
 
   const paymentTokenCode = await ethers.provider.getCode(paymentToken);
@@ -64,11 +77,11 @@ async function main() {
   const pmmAddress = await pmm.getAddress();
   console.log("PythagoreanMarketMakerV2 deployed:", pmmAddress);
 
-  if (initialOwner.toLowerCase() === deployer.address.toLowerCase()) {
-    await tbn.setMinter(pmmAddress);
+  if (deployerIsInitialOwner) {
+    await (await tbn.setMinter(pmmAddress)).wait();
     console.log("Tenbinium minter set to PMM v2");
     if (freezeTbnMinter) {
-      await tbn.freezeMinter();
+      await (await tbn.freezeMinter()).wait();
       console.log("Tenbinium minter frozen permanently");
     }
   } else {
@@ -76,6 +89,21 @@ async function main() {
     console.log(`  tbn.setMinter("${pmmAddress}")`);
     console.log("  tbn.freezeMinter()");
   }
+
+  if (renouncePmmOwnership) {
+    await (await pmm.renounceOwnership()).wait();
+    console.log("PMM v2 ownership renounced");
+  }
+
+  if (renounceTbnOwnership) {
+    await (await tbn.renounceOwnership()).wait();
+    console.log("Tenbinium ownership renounced");
+  }
+
+  const pmmOwner = await pmm.owner();
+  const tbnOwner = await tbn.owner();
+  const tbnMinter = await tbn.minter();
+  const tbnMinterFrozen = await tbn.minterFrozen();
 
   const deploymentInfo = {
     network: "mainnet",
@@ -87,8 +115,14 @@ async function main() {
     },
     roles: {
       initialOwner,
+      pmmOwner,
+      tbnOwner,
+      tbnMinter,
+      tbnMinterFrozen,
     },
     freezeTbnMinter,
+    renouncePmmOwnership,
+    renounceTbnOwnership,
     deployer: deployer.address,
     deploymentBlock: await ethers.provider.getBlockNumber(),
     timestamp: new Date().toISOString(),

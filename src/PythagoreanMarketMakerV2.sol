@@ -2,7 +2,6 @@
 pragma solidity ^0.8.23;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
@@ -16,7 +15,7 @@ import {Tenbinium} from "./Tenbinium.sol";
  * @title PythagoreanMarketMakerV2
  * @notice Fresh v2 implementation of the whitepaper PMM, proof-of-proximity, and TBN reward mechanics.
  */
-contract PythagoreanMarketMakerV2 is Ownable, Pausable, ReentrancyGuard {
+contract PythagoreanMarketMakerV2 is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint256 public constant PROTOCOL_FEE_BASIS_POINTS = 100;
@@ -137,7 +136,7 @@ contract PythagoreanMarketMakerV2 is Ownable, Pausable, ReentrancyGuard {
         paymentTokenUnit = 10 ** IERC20Metadata(paymentToken_).decimals();
     }
 
-    function createAgent(bytes32 agentId, uint256 x, uint256 y) external whenNotPaused nonReentrant {
+    function createAgent(bytes32 agentId, uint256 x, uint256 y) external nonReentrant {
         _createAgent(agentId, x, y);
     }
 
@@ -147,7 +146,7 @@ contract PythagoreanMarketMakerV2 is Ownable, Pausable, ReentrancyGuard {
         uint256 currentY,
         uint256 newX,
         uint256 newY
-    ) external whenNotPaused nonReentrant {
+    ) external nonReentrant {
         _relocateAgent(agentId, currentX, currentY, newX, newY);
     }
 
@@ -218,14 +217,6 @@ contract PythagoreanMarketMakerV2 is Ownable, Pausable, ReentrancyGuard {
         ERC20Burnable(address(tbn)).burnFrom(msg.sender, FEE_REDEMPTION_TBN_BURN);
         paymentToken.safeTransfer(msg.sender, usdcRedeemed);
         emit FeeVaultRedeemed(msg.sender, FEE_REDEMPTION_TBN_BURN, usdcRedeemed);
-    }
-
-    function pause() external onlyOwner {
-        _pause();
-    }
-
-    function unpause() external onlyOwner {
-        _unpause();
     }
 
     function _createAgent(bytes32 agentId, uint256 x, uint256 y) internal {

@@ -16,7 +16,6 @@
     "test:lategame": "hardhat test test/pmmV2.lategame.test.js",
     "test:integration": "hardhat test test/pmmV2.integration.test.js",
     "deploy:v2:mainnet": "hardhat run scripts/deploy-v2-mainnet.js --network mainnet",
-    "deploy:v2:sepolia": "hardhat run scripts/deploy-v2-sepolia.js --network sepolia",
     "node": "hardhat node --hostname 0.0.0.0",
     "check:v2": "hardhat run scripts/check-v2-status.js"
   },

@@ -1,6 +1,6 @@
 # Pythagorean Market Maker V2
 
-Bittenbin PMM v2 is a fresh Ethereum-oriented implementation of the protocol described in `docs/whitepaper-v2.pdf`. It combines the Pythagorean market maker, automatic proof-of-proximity detection, and Tenbinium (`TBN`) token rewards.
+Bittenbin's PMM v2 is a fresh Ethereum-oriented implementation of the protocol described in `docs/whitepaper-v2.pdf`. It combines the Pythagorean market maker, automatic proof-of-proximity detection, and Tenbinium (`TBN`) token rewards.
 
 The v2 runtime uses two contracts:
 
@@ -79,10 +79,6 @@ Settles and mints the caller's accrued TBN rewards.
 `redeemFeeVault()`
 
 Burns `100 TBN` from the caller and transfers the full accumulated USDC fee vault to the caller.
-
-`pause()` and `unpause()`
-
-Owner-only emergency controls for PMM state-changing actions.
 
 ## Read Functions
 
@@ -175,25 +171,28 @@ npm run test:integration
 
 ## Deployment
 
-The v2 deployment scripts deploy fresh `Tenbinium` and `PythagoreanMarketMakerV2` contracts.
+The v2 mainnet deployment script deploys fresh `Tenbinium` and `PythagoreanMarketMakerV2` contracts.
 
 ```bash
-npm run deploy:v2:sepolia
 npm run deploy:v2:mainnet
 ```
 
-By default, the script uses Ethereum Sepolia USDC:
+By default, the script uses Ethereum mainnet USDC:
 
 ```text
-0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238
+0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
 ```
 
 Override deployment parameters with:
 
 ```bash
+MAINNET_RPC_URL=https://...
+PRIVATE_KEY=0x...
 PAYMENT_TOKEN=0x...
 INITIAL_OWNER=0x...
 FREEZE_TBN_MINTER=true # optional, one-way
+RENOUNCE_PMM_OWNERSHIP=true
+RENOUNCE_TBN_OWNERSHIP=true
 ```
 
 After deployment, `Tenbinium` should have `PythagoreanMarketMakerV2` set as its minter. Freezing the minter makes this assignment permanent, preventing the TBN owner from later installing another minter and minting outside the PMM reward schedule.
@@ -201,7 +200,6 @@ After deployment, `Tenbinium` should have `PythagoreanMarketMakerV2` set as its 
 Check a saved deployment or explicit contract addresses:
 
 ```bash
-npm run check:v2 -- --network sepolia
 PMM_V2_ADDRESS=0x... TBN_ADDRESS=0x... PAYMENT_TOKEN=0x... npm run check:v2 -- --network mainnet
 ```
 
@@ -210,35 +208,37 @@ Ownership renounce checklist:
 1. Verify `Tenbinium.minter()` is the deployed PMM v2 address.
 2. Call `Tenbinium.freezeMinter()` if it was not frozen during deployment.
 3. Verify `Tenbinium.minterFrozen()` is `true`.
-4. Transfer PMM v2 ownership to a multisig, or call `renounceOwnership()` only if the protocol no longer needs `pause` or `unpause`.
-5. Transfer TBN ownership to a multisig, or call `renounceOwnership()` after `freezeMinter()` if no further owner controls are desired.
+4. Verify `PythagoreanMarketMakerV2.owner()` is `0x0000000000000000000000000000000000000000` when `RENOUNCE_PMM_OWNERSHIP=true`.
+5. Verify `Tenbinium.owner()` is `0x0000000000000000000000000000000000000000` when `RENOUNCE_TBN_OWNERSHIP=true`.
 
-## Python Cookbooks
+## Python Helper
 
-The Python cookbooks target PMM v2:
+The Python helper targets PMM v2 on Ethereum mainnet:
 
-- `pmm_cookbook_mainnet.py`: Ethereum mainnet
-- `pmm_cookbook_testnet.py`: Ethereum Sepolia
+- `pmmV2-helper.py`
 
 Set deployed contract addresses before use:
 
 ```bash
 PMM_V2_ADDRESS=0x...
 TBN_ADDRESS=0x...
+MAINNET_RPC_URL=https://...
 PRIVATE_KEY=0x... # only needed for transactions
 ```
 
 Common commands:
 
 ```bash
-python pmm_cookbook_testnet.py health
-python pmm_cookbook_testnet.py agent-id https://agent.example
-python pmm_cookbook_testnet.py validate 15 20
-python pmm_cookbook_testnet.py state <agent_id>
-python pmm_cookbook_testnet.py approve-usdc 100
-python pmm_cookbook_testnet.py create <agent_id> 15 20
-python pmm_cookbook_testnet.py relocate <agent_id> 15 20 20 21
-python pmm_cookbook_testnet.py claim-tbn
+python pmmV2-helper.py health
+python pmmV2-helper.py agent-id https://agent.example
+python pmmV2-helper.py validate 15 20
+python pmmV2-helper.py state <agent_id>
+python pmmV2-helper.py approve-usdc 100
+python pmmV2-helper.py approve-tbn-burn 100
+python pmmV2-helper.py create <agent_id> 15 20
+python pmmV2-helper.py relocate <agent_id> 15 20 20 21
+python pmmV2-helper.py redeem-fee-vault
+python pmmV2-helper.py claim-tbn
 ```
 
 ## License
