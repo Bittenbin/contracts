@@ -1,329 +1,245 @@
-# Pythagorean Market Maker (PMM)
+# Pythagorean Market Maker V2
 
-A decentralized reputation system using coordinate-based markets to track votes for any platform entity.
+Bittenbin's PMM v2 is a fresh Ethereum-oriented implementation of the protocol described in `docs/whitepaper-v2.pdf`. It combines the Pythagorean market maker, automatic proof-of-proximity detection, and Tenbinium (`TBN`) token rewards.
 
-## 🚀 Live Deployments
+The v2 runtime uses two contracts:
 
-### Base Mainnet
-- **PMM Contract**: [`0xff763ea9508Be30840edB942D4ffDEAaa4Ec9FEc`](https://basescan.org/address/0xff763ea9508Be30840edB942D4ffDEAaa4Ec9FEc)
-- **Token (TBD)**: [`0xAEe7CdeEB72D645Fc9598d4AF47C43303A6c699f`](https://basescan.org/address/0xAEe7CdeEB72D645Fc9598d4AF47C43303A6c699f) [Verified]
-- **Chain ID**: 8453
-- **Deployed**: December 12, 2025
-- **Explorer**: [Basescan](https://basescan.org)
+- `PythagoreanMarketMakerV2`: PMM locations, relocations, proof-of-proximity, solver power, rewards, fees, and proximity reads.
+- `Tenbinium`: ERC-20 reward token with zero initial supply, a 21,000,000 TBN cap, burn support, and PMM v2 as minter.
 
-### Base Sepolia Testnet
-- **PMM Contract**: [`0x2642ED665649ac28bAC25B98f71491bD1a468b8d`](https://sepolia.basescan.org/address/0x2642ED665649ac28bAC25B98f71491bD1a468b8d)
-- **Token (TBD)**: [`0x25a8A0306DcB5a0d07A8Eb56d761E0fC7Dd29767`](https://sepolia.basescan.org/address/0x25a8A0306DcB5a0d07A8Eb56d761E0fC7Dd29767)
-- **Chain ID**: 84532
-- **Deployed**: December 12, 2025
-- **Explorer**: [Sepolia Basescan](https://sepolia.basescan.org)
-- **Faucet**: [Base Sepolia Faucet](https://www.alchemy.com/faucets/base-sepolia)
+## Protocol Overview
 
-**Authors**: clwsqc and rtedwardchen
+Each agent is created from a human-readable primary ID such as an agent URL. The contract derives the canonical `bytes32 agentId` as `keccak256(bytes(primaryId))`, stores that hash, and emits the readable primary ID in `AgentCreated` for frontends and indexers.
 
-## Overview
+Each listed agent occupies a unique Pythagorean lattice point `(x, y, c)` where:
 
-PMM creates reputation markets where:
-- Each market exists at coordinates (x, y) representing vote positions
-- Coordinates are valid when x>0, y>0 within bounds (max 1 billion each)
-- **Cost = sqrt(x² + y²) TBD** with configurable protocol fee (0-1%, default 1%)
-- Individual vote tracking ensures you can only sell votes you own
-- Built-in MEV protection with 2.5% default slippage tolerance
-- **Yield accrual** on held positions based on market count
-
-### Key Features
-- Create markets for any numeric platform ID (via application workflow)
-- Buy votes to change position on x or y axis
-- Sell only the votes you personally contributed
-- Earn yield on your holdings over time
-- No expiration - markets exist forever
-- Gas-efficient design for millions of users
-
-## Tenbin Dollar (TBD) Token
-
-PMM uses **Tenbin Dollar (TBD)** as its native payment and reward token:
-
-- **Name/Symbol**: Tenbin Dollar (`TBD`)
-- **Decimals**: 6
-- **Initial Supply**: 11,110,000 TBD minted to deployer
-- **Roles**:
-  - **Minter**: Can mint unlimited TBD (set to PMM contract after deployment)
-  - **Burner**: Can burn TBD from any address (initially owner)
-- **No hard cap**: Minting is unlimited for yield distribution
-
-### Deployment Environment Variables
-```bash
-# Deploy fresh token + PMM
-DEPLOY_TOKEN=true npx hardhat run scripts/deploy.js --network base
-
-# Use existing token
-PAYMENT_TOKEN=0xYourToken npx hardhat run scripts/deploy.js --network base
+```text
+c = sqrt(x^2 + y^2)
 ```
 
-## Quick Start
+The PMM cost is based on the change in `c`:
 
-💡 **Tip**: Test on Base Sepolia first before using mainnet!
-
-### Using Basescan UI
-1. Visit the contract on Basescan (see deployment addresses above)
-2. Click "Contract" → "Write as Proxy"
-3. Connect wallet and interact
-
-### Using JavaScript
-```javascript
-const PMM_ADDRESS = "<PMM_PROXY_ADDRESS>";
-const TBD_ADDRESS = "<TBD_TOKEN_ADDRESS>";
-
-// Approve token first
-await tenbin.approve(PMM_ADDRESS, ethers.parseUnits("100", 6));
-
-// Apply to create a market (costs 10 TBD application fee)
-await pmm.applyForMarket(1234567890);
-
-// After owner approval, vote to set initial position
-// Market starts at (0,0), first vote moves it to desired position
-await pmm.voteOnMarket(1234567890, 3, 4); // Costs ~5.05 TBD
-
-// Or if directly creating (owner can bypass application):
-await pmm.createMarket(1234567890, 3, 4);
-
-// Vote to move market to (5,12) - costs ~8.08 TBD
-await pmm.voteOnMarket(1234567890, 5, 12);
-
-// Claim accrued yield
-await pmm.claimYield(1234567890);
+```text
+new listing:  c
+relocation:   newC - oldC
 ```
 
-### Using Python
-```bash
-# For Base Mainnet
-python pmm_cookbook_mainnet.py check-market 1234567890
+Positive `deltaC` requires USDC payment plus a 1% protocol fee. Negative `deltaC` returns USDC minus a 1% protocol fee. These USDC fees accumulate in a fee vault that anyone can redeem by burning 100 TBN. Zero `deltaC` relocations do not pay or receive USDC, but can still trigger the separate TBN burn if the destination was previously used as a proof destination.
 
-# For Base Sepolia Testnet
-python pmm_cookbook_testnet.py check-market 1234567890
-```
+## Proof-Of-Proximity
 
-## How It Works
+Every positive listing or relocation automatically checks whether it solves proof-of-proximity.
 
-### Pricing Formula
-```
-Cost = sqrt(x_new² + y_new²) - sqrt(x_current² + y_current²) + 1% fee
-```
+A transaction is a valid solution when:
 
-The hypotenuse can be fractional; payments are calculated with token-decimal precision (6 decimals for TBD).
+- `deltaC = n^2`
+- post-transaction `totalStakedValue = m^2`
+- destination `(x, y, c)` has not previously been used as a puzzle-solving destination
 
-| Action | From → To | Cost |
-|--------|-----------|------|
-| Create | (0,0) → (3,4) | 5.05 TBD |
-| Buy | (3,4) → (5,12) | 8.08 TBD |
-| Sell | (5,12) → (3,4) | -7.92 TBD (refund) |
-| Rebalance | (3,4) → (4,3) | 0 TBD |
+When valid, the contract:
 
-### Vote Tracking
-- When you create a market, you own all initial votes
-- When you move a market, you own the vote delta
-- You can only sell votes you previously bought
-- Your position accumulates across multiple transactions
+- marks the destination as used
+- updates `nMax = max(nMax, n)`
+- increases the solver's power by `deltaC`
+- emits `ProofOfProximitySolved`
 
-### Score
-```
-Score = y² / (x² + y²)
-```
-- (3,4) = 64%
-- (4,3) = 36%
-- (5,12) = 85%
+The solver is the wallet that executed the transaction (`msg.sender`).
 
-## Market Application Flow
+## TBN Rewards
 
-To prevent spam and ensure quality markets, PMM uses an application/approval workflow:
+TBN has zero initial supply and a hard cap of 21,000,000 tokens.
 
-1. **Apply**: Anyone calls `applyForMarket(platformId)` with a **10 TBD** fee
-2. **Review**: Contract owner reviews pending applications
-3. **Approve/Deny**: Owner calls `approveMarket(platformId)` or `denyMarket(platformId)`
-4. **Trade**: Upon approval, market is created at (0,0) and anyone can vote
+Solver power earns TBN pro rata through a global reward accumulator:
 
-```javascript
-// Step 1: Applicant submits (10 TBD consumed regardless of outcome)
-await tenbin.approve(PMM_ADDRESS, ethers.parseUnits("10", 6));
-await pmm.applyForMarket(1234567890);
+- Years 1-20: 1,000,000 TBN per year
+- Year 21 onward: 500,000 TBN per year, halving yearly
 
-// Step 2: Owner approves (market now live at (0,0))
-await pmm.approveMarket(1234567890);
+Emission starts only after solver power first exists. Solvers claim rewards with `claimTBN()`.
 
-// Step 3: Anyone can trade after approval
-await tenbin.approve(PMM_ADDRESS, ethers.parseUnits("100", 6));
-await pmm.voteOnMarket(1234567890, 3, 4); // Costs ~5.05 TBD
-```
+If total solver power later falls to zero, emissions for that time window are not allocated or minted. This acts like unminted emission decay, so actual TBN supply may finish below the 21,000,000 hard cap.
 
-**Note**: The owner can also directly create markets using `createMarket()` without the application process.
+Any transaction that enters a destination previously used as a proof-solving destination burns `1 TBN` from the caller.
 
-## Yield and Rewards
+Separately, the accumulated USDC fee vault can be redeemed permissionlessly by burning `100 TBN`. The redeemer receives the full vault balance, the vault resets to zero, and the burned TBN is permanently removed from supply.
 
-PMM implements a yield system that rewards long-term holders:
+## Core Functions
 
-### Yield Rate Formula
-```
-Annual Yield Rate = K / sqrt(totalMarkets)
-where K = 4 / (3 * sqrt(π)) ≈ 0.752
-```
+`createAgent(string primaryId, uint256 x, uint256 y)`
 
-- More markets → lower individual yield rate (sustainable tokenomics)
-- Yield accrues linearly on your **cost basis** (yCost + xCost)
+Lists a new agent at a unique valid Pythagorean coordinate. The contract derives `agentId = keccak256(bytes(primaryId))`; the caller pays `c` USDC plus 1% fee, receives initial x/y exposure, and may automatically solve proof-of-proximity if the transaction qualifies.
 
-### Cost Basis Tracking
-For each user and market, PMM tracks:
-- `yCost`: TBD spent on y-axis votes
-- `xCost`: TBD spent on x-axis votes
-- `lastAccrual`: Timestamp of last yield calculation
-- `unclaimedYield`: Accumulated rewards pending claim
+`relocateAgent(bytes32 agentId, uint256 currentX, uint256 currentY, uint256 newX, uint256 newY)`
 
-### How Yield Accrues
-```
-reward = (yCost + xCost) × annualRate × timeElapsed / year
-```
+Moves an existing agent from the caller's expected current coordinate to a new valid Pythagorean coordinate. The `currentX` and `currentY` guard prevents stale-state execution: if the agent has moved before the transaction lands, the relocation reverts before payment, refund, burn, exposure update, or proof detection. Positive `deltaC` charges USDC, negative `deltaC` refunds USDC and reduces the caller's solver power, and qualifying positive moves automatically solve proof-of-proximity.
 
-- **Buying**: Adds to cost basis (decomposed along y/x path)
-- **Selling**: Reduces cost basis pro-rata for units sold
-- **Rebalancing**: No change to cost basis (same hypotenuse)
-- **Claiming**: Mints accrued TBD to caller, resets unclaimed to 0
+`claimTBN()`
 
-### Claiming Yield
-```javascript
-// Check current yield rate
-const rateWad = await pmm.currentAnnualYieldWad();
-console.log("Annual rate:", Number(rateWad) / 1e18);
+Settles and mints the caller's accrued TBN rewards.
 
-// Claim rewards for a specific market
-await pmm.claimYield(1234567890);
-```
+`redeemFeeVault()`
 
-**Important**: PMM must be set as the token minter for yield claiming to work. Deployment scripts handle this automatically.
+Burns `100 TBN` from the caller and transfers the full accumulated USDC fee vault to the caller.
 
-## Contract Functions
+## Read Functions
 
-### Core Trading Functions
-- `createMarket(platformId, x, y)` - Create new market (owner only, or after application)
-- `voteOnMarket(platformId, newX, newY)` - Change market position
-- `voteOnMarketWithSlippage(platformId, newX, newY, slippageBP)` - With custom slippage
+`getAgentState(bytes32 agentId)`
 
-### Application Functions
-- `applyForMarket(platformId)` - Submit application (10 TBD fee)
-- `approveMarket(platformId)` - Owner approves application
-- `denyMarket(platformId)` - Owner denies application
+Returns `(x, y, c, exists)` for an agent.
 
-### Yield Functions
-- `claimYield(platformId)` - Claim accrued rewards
-- `currentAnnualYieldWad()` - Get current annual yield rate (WAD format)
+`getExposure(bytes32 agentId, address participant)`
 
-### Read Functions
-- `getMarketState(platformId)` - Get position, score, total votes
-- `getVoterPosition(platformId, voter)` - Check voter's owned votes
-- `holdings(platformId, voter)` - Get cost basis and unclaimed yield
-- `marketExistsFor(platformId)` - Check if market exists
-- `isValidCoordinate(x, y)` - Validate coordinates
+Returns a participant's owned x/y exposure for an agent. A participant can only sell exposure they previously acquired.
 
-### With Custom Slippage
-- `createMarketWithSlippage(platformId, x, y, slippageBasisPoints)`
-- `voteOnMarketWithSlippage(platformId, newX, newY, slippageBasisPoints)`
+`pendingTBN(address solver)`
 
-## Valid Coordinates
+Returns the solver's claimable TBN, including rewards accrued since the last global update.
 
-Coordinates are valid if:
-- `x > 0` and `y > 0`
-- Both within `MAX_COORDINATE_VALUE` (1 billion)
-- Hypotenuse ≤ `MAX_HYPOTENUSE` (1.5 billion)
-- For creation: `x ≠ y` (cannot start on genesis line)
+`areConnected(bytes32 agentA, bytes32 agentB)`
 
-**Note**: Unlike the name suggests, coordinates do NOT need to form Pythagorean triples. Any valid (x, y) pair works.
+Returns whether two agents are within the current proximity radius `nMax`.
 
-Examples:
-- Valid: (3,4), (5,12), (4,5), (10,11), (100,200)
-- Invalid: (0,5), (5,0), (5,5) for creation
+`isValidCoordinate(uint256 x, uint256 y)`
 
-Use `isValidCoordinate(x, y)` to check validity.
+Returns whether `(x, y)` forms a valid Pythagorean coordinate under protocol bounds.
 
-## Fee Distribution
+`destinationHash(uint256 x, uint256 y, uint256 c)` and `coordinateHash(uint256 x, uint256 y)`
 
-- **Configurable protocol fee**: 0% to 1% (default 1%)
-- Fee can be adjusted by owner or protocol fee recipient via `setProtocolFee()`
-- Split 50/50 between owner and protocol recipients
-- Owner functions: `distributeProtocolFees()`, `updateFeeRecipients()`, `setProtocolFee()`
+Pure helpers for deriving destination and coordinate hashes used by the protocol.
 
-```javascript
-// Check accumulated fees
-const feeInfo = await pmm.getFeeDistributionInfo();
-console.log("Pending fees:", feeInfo.pendingFees);
+## Key Events
 
-// Distribute all fees (owner only)
-await pmm.distributeProtocolFees(0); // 0 = distribute all
+`AgentCreated(bytes32 indexed agentId, string primaryId, address indexed creator, uint256 x, uint256 y, uint256 c)`
 
-// Or distribute specific amount
-await pmm.distributeProtocolFees(ethers.parseUnits("100", 6));
+Emitted when an agent is listed. `primaryId` is not indexed so event consumers can read the original human-readable ID.
 
-// Individual withdrawals
-await pmm.withdrawToOwner(amount);
-await pmm.withdrawToProtocol(amount);
+`AgentRelocated(bytes32 indexed agentId, address indexed participant, uint256 fromX, uint256 fromY, uint256 toX, uint256 toY, int256 deltaC)`
 
-// Set protocol fee (owner or protocol recipient)
-await pmm.setProtocolFee(50);  // Set to 0.5% (50 basis points)
-await pmm.setProtocolFee(0);   // Set to 0%
-await pmm.setProtocolFee(100); // Set to 1% (maximum)
-```
+Emitted when an agent is relocated.
 
-## Safety Features
+`ExposureUpdated(bytes32 indexed agentId, address indexed participant, uint256 xExposure, uint256 yExposure)`
 
-- **Maximum coordinate**: 1 billion
-- **Maximum hypotenuse**: 1.5 billion
-- **Overflow protection**: All math operations checked
-- **Pausable**: Owner can pause in emergencies
-- **Upgradeable**: UUPS proxy pattern for future improvements
-- **Reentrancy guard**: Protection against reentrancy attacks
-- **Comprehensive event logging**: For monitoring and indexing
+Emitted after participant exposure changes.
+
+`ProofOfProximitySolved(address indexed solver, bytes32 indexed agentId, uint256 x, uint256 y, uint256 deltaC, uint256 n, uint256 newTVL, uint256 nMax)`
+
+Emitted when a transaction automatically solves proof-of-proximity.
+
+`SolverPowerUpdated(address indexed solver, uint256 power, uint256 totalPower)`
+
+Emitted when solver power changes.
+
+`TbnClaimed(address indexed solver, uint256 amount)`
+
+Emitted when a solver claims TBN.
+
+`TbnBurnedForUsedDestination(address indexed payer, bytes32 indexed destinationHash, uint256 amount)`
+
+Emitted when the 1 TBN used-destination fee is burned.
+
+`FeeVaultRedeemed(address indexed redeemer, uint256 tbnBurned, uint256 usdcRedeemed)`
+
+Emitted when a caller burns TBN to redeem the accumulated USDC fee vault.
 
 ## Development
 
-### Setup
+Install dependencies and run tests:
+
 ```bash
 npm install
 npx hardhat compile
 npx hardhat test
 ```
 
-### Local Development
-```bash
-# Start local node
-npm run node
+Run only the v2 tests:
 
-# Deploy with fresh token
-DEPLOY_TOKEN=true npx hardhat run scripts/deploy.js --network localhost
+```bash
+npm run test:v2
 ```
 
-### Deploy to Testnet
-```bash
-# Set environment variables in .env
-# PRIVATE_KEY, BASE_SEPOLIA_RPC_URL
+Run a specific category:
 
-DEPLOY_TOKEN=true npx hardhat run scripts/deploy.js --network base-sepolia
+```bash
+npm run test:pmm
+npm run test:proof
+npm run test:tbn
+npm run test:fees
+npm run test:security
+npm run test:frontrun
+npm run test:lategame
+npm run test:integration
 ```
 
-### Deploy to Mainnet
-```bash
-# Set environment variables in .env
-# PRIVATE_KEY, BASE_RPC_URL
+## Deployment
 
-DEPLOY_TBD=true npx hardhat run scripts/deploy-mainnet.js --network base
+The v2 mainnet deployment script deploys fresh `Tenbinium` and `PythagoreanMarketMakerV2` contracts.
+
+```bash
+npm run deploy:v2:mainnet
 ```
 
-### Python Cookbooks
-- `pmm_cookbook_mainnet.py` - Base Mainnet interactions
-- `pmm_cookbook_testnet.py` - Base Sepolia interactions
+By default, the script uses Ethereum mainnet USDC:
 
-## Technical Documentation
+```text
+0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
+```
 
-For detailed technical information:
-- [Coordinate System Documentation](docs/PYTHAGOREAN_COORDINATES.md)
-- Contract implements UUPS upgradeable pattern
-- Uses OpenZeppelin security libraries
+Override deployment parameters with:
+
+```bash
+MAINNET_RPC_URL=https://...
+PRIVATE_KEY=0x...
+PAYMENT_TOKEN=0x...
+INITIAL_OWNER=0x...
+FREEZE_TBN_MINTER=true # optional, one-way
+RENOUNCE_PMM_OWNERSHIP=true
+RENOUNCE_TBN_OWNERSHIP=true
+```
+
+After deployment, `Tenbinium` should have `PythagoreanMarketMakerV2` set as its minter. Freezing the minter makes this assignment permanent, preventing the TBN owner from later installing another minter and minting outside the PMM reward schedule.
+
+Check a saved deployment or explicit contract addresses:
+
+```bash
+PMM_V2_ADDRESS=0x... TBN_ADDRESS=0x... PAYMENT_TOKEN=0x... npm run check:v2 -- --network mainnet
+```
+
+Ownership renounce checklist:
+
+1. Verify `Tenbinium.minter()` is the deployed PMM v2 address.
+2. Call `Tenbinium.freezeMinter()` if it was not frozen during deployment.
+3. Verify `Tenbinium.minterFrozen()` is `true`.
+4. Verify `PythagoreanMarketMakerV2.owner()` is `0x0000000000000000000000000000000000000000` when `RENOUNCE_PMM_OWNERSHIP=true`.
+5. Verify `Tenbinium.owner()` is `0x0000000000000000000000000000000000000000` when `RENOUNCE_TBN_OWNERSHIP=true`.
+
+## Python Helper
+
+The Python helper targets PMM v2 on Ethereum mainnet:
+
+- `pmmV2-helper.py`
+
+Set deployed contract addresses before use:
+
+```bash
+PMM_V2_ADDRESS=0x...
+TBN_ADDRESS=0x...
+MAINNET_RPC_URL=https://...
+PRIVATE_KEY=0x... # only needed for transactions
+```
+
+Common commands:
+
+```bash
+python pmmV2-helper.py health
+python pmmV2-helper.py agent-id https://agent.example
+python pmmV2-helper.py validate 15 20
+python pmmV2-helper.py state <agent_id_hash>
+python pmmV2-helper.py approve-usdc 100
+python pmmV2-helper.py approve-tbn-burn 100
+python pmmV2-helper.py create https://agent.example 15 20
+python pmmV2-helper.py relocate <agent_id_hash> 15 20 20 21
+python pmmV2-helper.py redeem-fee-vault
+python pmmV2-helper.py claim-tbn
+```
 
 ## License
 

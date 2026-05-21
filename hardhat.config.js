@@ -25,36 +25,16 @@ module.exports = {
     localhost: {
       url: "http://127.0.0.1:8545"
     },
-    sepolia: {
-      url: process.env.SEPOLIA_RPC_URL || "",
+    mainnet: {
+      url: process.env.MAINNET_RPC_URL || "",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
-      chainId: 11155111
-    },
-    base: {
-      url: process.env.BASE_RPC_URL || "",
-      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
-      chainId: 8453
-    },
-    "base-sepolia": {
-      url: process.env.BASE_SEPOLIA_RPC_URL || "",
-      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
-      chainId: 84532
+      chainId: 1
     }
   },
   etherscan: {
-    // Etherscan Verify plugin now prefers Etherscan V2 API keys (single key for all supported chains).
-    // Keep BASESCAN_API_KEY as a fallback for backwards compatibility with existing env setups.
-    apiKey: process.env.ETHERSCAN_API_KEY || process.env.BASESCAN_API_KEY || "",
-    customChains: [
-      {
-        network: "base-sepolia",
-        chainId: 84532,
-        urls: {
-          apiURL: "https://api-sepolia.basescan.org/api",
-          browserURL: "https://sepolia.basescan.org"
-        }
-      }
-    ]
+    apiKey: {
+      mainnet: process.env.ETHERSCAN_API_KEY || ""
+    }
   },
   gasReporter: {
     enabled: process.env.REPORT_GAS === "true",
@@ -63,7 +43,7 @@ module.exports = {
   },
   paths: {
     sources: "./src",
-    tests: "./test",
+    tests: "./test/hardhat",
     cache: "./cache",
     artifacts: "./artifacts"
   }

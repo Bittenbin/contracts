@@ -18,6 +18,8 @@ accounts.txt
 
 # Dotenv file
 .env
+.env.local
+.env.*.local
 
 # Mac
 .DS_Store
@@ -55,8 +57,7 @@ deployments/
 # OpenZeppelin
 .openzeppelin/
 
-# Foundry (keeping for reference, but can be removed)
-lib/
+# Foundry
 forge-cache/
 
 # Build artifacts
