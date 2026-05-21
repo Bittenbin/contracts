@@ -43,7 +43,7 @@ module.exports = {
   },
   paths: {
     sources: "./src",
-    tests: "./test",
+    tests: "./test/hardhat",
     cache: "./cache",
     artifacts: "./artifacts"
   }

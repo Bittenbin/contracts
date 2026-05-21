@@ -57,8 +57,7 @@ deployments/
 # OpenZeppelin
 .openzeppelin/
 
-# Foundry (keeping for reference, but can be removed)
-lib/
+# Foundry
 forge-cache/
 
 # Build artifacts
