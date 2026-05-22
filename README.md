@@ -177,6 +177,27 @@ The v2 mainnet deployment script deploys fresh `Tenbinium` and `PythagoreanMarke
 npm run deploy:v2:mainnet
 ```
 
+### Mainnet Deployment
+
+Contracts:
+
+```text
+Tenbinium: 0x279658aEBF8D15901f9e4362a97AeB4da54942c6
+PythagoreanMarketMakerV2: 0x92223bC1D150FC7B17A136f7Ef9E39BFbC579DDd
+USDC payment token: 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
+```
+
+Key deployment transactions:
+
+```text
+TBN deploy: 0x2d4f4c3c6c8b33883ca04f478e46c022596f5a386cd1d3bae492a6813ddfe7ed
+PMM deploy: 0x491bb8b649c1219441bafe9c84ddcb7cc80979dbc4916177166fa60e5c35dc80
+setMinter: 0xc4bdf0940224506ab1e5d04f460e11bd91d3b65854ccb0c590f906cc1e3e384f
+freezeMinter: 0xf5a76cd2d19f8295b46675b20c0bdc1b594af76ca440ceb78483a10911467ff0
+PMM renounce: 0x09c96be536f5e903b60bbc559a689eea13f3de246e3263051c184cdaef701a7f
+TBN renounce: 0xe013f0c4d5458d5405ab4f3c3138c72707f8d537af3ce4f188ee04e6b64e1ad3
+```
+
 By default, the script uses Ethereum mainnet USDC:
 
 ```text
