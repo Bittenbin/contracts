@@ -264,4 +264,7 @@ python pmmV2-helper.py claim-tbn
 
 ## License
 
-Licensed under the MIT License. See [LICENSE](LICENSE).
+The PMM V2 core contracts are licensed under the Business Source License 1.1.
+See [licenses/BUSL_LICENSE](licenses/BUSL_LICENSE).
+
+Files that remain MIT-licensed are covered by [licenses/MIT_LICENSE](licenses/MIT_LICENSE).
