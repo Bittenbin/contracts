@@ -22,8 +22,8 @@
     "check:v2": "hardhat run scripts/check-v2-status.js"
   },
   "keywords": ["blockchain", "ethereum", "smart-contracts", "reputation", "pythagorean"],
-  "author": "rtedwardchen",
-  "license": "MIT",
+  "author": "Calvin Lin (cl@bittenbin.com)",
+  "license": "SEE LICENSE IN licenses/BUSL_LICENSE",
   "devDependencies": {
     "@nomicfoundation/hardhat-chai-matchers": "^2.0.2",
     "@nomicfoundation/hardhat-ethers": "^3.0.5",
