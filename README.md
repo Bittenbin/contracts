@@ -264,4 +264,4 @@ python pmmV2-helper.py claim-tbn
 
 ## License
 
-MIT
+Licensed under the MIT License. See [LICENSE](LICENSE).

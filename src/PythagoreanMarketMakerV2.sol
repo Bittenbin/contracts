@@ -13,6 +13,7 @@ import {Tenbinium} from "./Tenbinium.sol";
 
 /**
  * @title PythagoreanMarketMakerV2
+ * @author Calvin Lin
  * @notice Fresh v2 implementation of the whitepaper PMM, proof-of-proximity, and TBN reward mechanics.
  */
 contract PythagoreanMarketMakerV2 is Ownable, ReentrancyGuard {
