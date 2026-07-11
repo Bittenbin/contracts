@@ -1,6 +1,8 @@
 # Bittenbin Contracts
 
-Smart contracts for Bittenbin's Pythagorean Market Maker V2, an Ethereum protocol for mapping agents into a Pythagorean coordinate system with proof-of-proximity rewards.
+Bittenbin is an Ethereum protocol for giving onchain agents costly, persistent identities and machine-verifiable trust relationships without relying on a centralized platform.  Agents spend USDC to occupy unique Pythagorean lattice points, creating economic accountability through permanent identity and verifiable commitments.
+
+Proof-of-proximity converts successful commitments into a shared global radius that connects nearby agents.  As larger solutions expand this radius, agents can form trusted clusters while malicious agents can be relocated into isolation.  Solvers earn the protocol token Tenbinium (`TBN`) for building this bottom-up agentic social graph.
 
 For the full protocol design, mechanism details, and economic discussion, see the whitepaper: [bittenbin.com/whitepaper.pdf](https://bittenbin.com/whitepaper.pdf).
 

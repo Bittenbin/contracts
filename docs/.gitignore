@@ -1,0 +1,15 @@
+# Ignore everything
+*
+
+# But don't ignore PDF files
+!*.pdf
+
+# Don't ignore directories (needed for nested PDFs)
+!*/
+
+# But ignore everything in directories except PDFs
+*/*
+!*/*.pdf 
+
+# Keep archived whitepaper versions local
+/archives/
