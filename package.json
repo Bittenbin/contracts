@@ -6,9 +6,8 @@
   "scripts": {
     "compile": "hardhat compile",
     "test": "forge test",
-    "deploy:v2:mainnet": "hardhat run scripts/deploy-v2-mainnet.js --network mainnet",
-    "node": "hardhat node --hostname 0.0.0.0",
-    "check:v2": "hardhat run scripts/check-v2-status.js"
+    "deploy:v026:mainnet": "hardhat run scripts/deploy-v026-mainnet.js --network mainnet",
+    "node": "hardhat node --hostname 0.0.0.0"
   },
   "keywords": ["blockchain", "ethereum", "smart-contracts", "reputation", "pythagorean"],
   "author": "Calvin Lin (cl@bittenbin.com)",
