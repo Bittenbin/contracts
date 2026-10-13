@@ -1,40 +1,100 @@
 # Bittenbin Contracts
 
-Bittenbin is an Ethereum protocol for giving onchain agents costly, persistent identities and machine-verifiable trust relationships without relying on a centralized platform.  Agents spend USDC to occupy unique Pythagorean lattice points, creating economic accountability through permanent identity and verifiable commitments.
+Bittenbin is a decentralized intelligence system on Ethereum that answers Yes/No questions with a probability.  Many independent forecasters answer the same question, each answer is costly to give, and the answers are combined into one probability without a centralized platform.
 
-Proof-of-proximity converts successful commitments into a shared global radius that connects nearby agents.  As larger solutions expand this radius, agents can form trusted clusters while malicious agents can be relocated into isolation.  Solvers earn the protocol token Tenbinium (`TBN`) for building this bottom-up agentic social graph.
+For the full design, see the whitepaper: [docs/whitepaper-v2.6.pdf](docs/whitepaper-v2.6.pdf).
 
-For the full protocol design, mechanism details, and economic discussion, see the whitepaper: [bittenbin.com/whitepaper.pdf](https://bittenbin.com/whitepaper.pdf).
+## How It Works
+
+### Neurons
+
+A wallet joins by creating a **neuron** at a Pythagorean lattice point `(x, y, C)`, where `x² + y² = C²`.  The neuron stands for one probability forever:
+
+```text
+P(Yes) = (x / C)²,   P(No) = (y / C)²
+```
+
+To create it, the wallet searches for a nonce such that
+
+```text
+H = keccak256(wallet, x, y, C, nonce)
+```
+
+begins with `x`, then `y`, then `C`, each written in binary.  A point whose three numbers take `ℓ` bits in total needs about `2^ℓ` hashes.  For example, `(15, 20, 25)` stands for 36% and needs a hash that begins with the 14 bits `1111 10100 11001`.
+
+Each lattice point can hold only one neuron.  The smallest points are taken first, so the work needed to create a neuron rises with the number of neurons that already exist.
+
+### Rewards
+
+Creating a neuron mints Tenbinium (`TBN`), which has a zero initial supply and a hard cap of 21,000,000.  The reward depends only on how many neurons were created before:
+
+| Neurons created | Reward per neuron |
+| --- | --- |
+| First 9,000,000 | 2 TBN |
+| Next 1,000,000 | 1 TBN |
+| After 10,000,000 | 0.5 TBN, halving every 2,000,000 neurons |
+
+### Questions
+
+A customer asks a question and chooses how long it stays open.  The fee is fixed for each duration and grows approximately with the square root of the time:
+
+| Duration | Fee |
+| --- | --- |
+| 1 hour | 1 TBN |
+| 4 hours | 2 TBN |
+| 1 day | 5 TBN |
+| 7 days | 13 TBN |
+
+Until the deadline, a wallet answers by **storing** the question under a neuron that it owns, usually the one whose probability is closest to what it believes.  Storing is a single public transaction, and the wallet can attach an opinion of up to 280 bytes.
+
+If no neuron stores a question, the fee returns to the customer.  Questions are never settled: the answer is the considered opinion of the neurons that stored it, and the protocol does not measure whether it was right.
+
+### Memory
+
+A neuron has a finite memory.  It can store one question for every bit of its proof, so the neuron at `(15, 20, 25)` can store 14 questions.  A slot given to one question cannot be given to another, which gives a wallet a reason to store only the questions where it expects to be close to the final answer.
+
+### Aggregated Probability
+
+Each neuron that stores a question is a vector `(x, y)`.  The protocol adds these vectors and reads the answer from the direction of their sum `q`:
+
+```text
+q = (Σ x, Σ y),   P(Yes) = (q_x / ‖q‖)²
+```
+
+A neuron with a larger hypotenuse moves the sum further, so the answer is weighted by the work behind each neuron.  After the deadline, the fee is shared among the neurons that stored the question, each receiving
+
+```text
+(x · q_x + y · q_y) / ‖q‖²
+```
+
+of it.  A neuron that points the same way as the sum earns in full proportion to its hypotenuse, and one that points away from it earns less.
 
 ## Contracts
 
-The PMM V2 runtime is composed of two core contracts:
+- `src/BittenbinCoreV026.sol`: neurons, questions, storing, the aggregated probability, fee claims and refunds.
+- `src/Tenbinium.sol`: the Tenbinium (`TBN`) ERC-20 token with burn support, zero initial supply and a 21,000,000 TBN hard cap.
 
-- `src/PythagoreanMarketMakerV2.sol`: agent creation, relocation, PMM accounting, proof-of-proximity detection, solver rewards, protocol fees, and proximity reads.
-- `src/Tenbinium.sol`: the Tenbinium (`TBN`) ERC-20 reward token with burn support, zero initial supply, and a 21,000,000 TBN hard cap.
+The main entry points of `BittenbinCoreV026` are:
 
-The protocol uses USDC as the payment token on Ethereum mainnet.
+| Function | Purpose |
+| --- | --- |
+| `createNeuron(x, y, c, nonce)` | Creates the caller's neuron at an unused lattice point and mints its reward |
+| `ask(text, duration)` | Asks a question for one of the four durations and pays its fee |
+| `store(questionId, x, y, opinion)` | Stores an open question under the caller's neuron |
+| `claim(questionId, x, y)` | Pays a neuron's share of a closed question's fee |
+| `refund(questionId)` | Returns the fee of a closed question that no neuron stored |
+| `answerOf(questionId)` | Returns the sum `q` and the aggregated probability |
 
-## Mainnet Deployment
+## Deployment
+
+`BittenbinCoreV026` has not been deployed yet.  It must be set as the minter of the Tenbinium token that it rewards neurons with, so it needs a new Tenbinium deployment.
+
+The earlier PMM V2 protocol remains deployed on Ethereum mainnet.  Its Tenbinium token has a frozen minter and is not the token that `BittenbinCoreV026` will use.
 
 ```text
 PythagoreanMarketMakerV2: 0x92223bC1D150FC7B17A136f7Ef9E39BFbC579DDd
-Tenbinium:                0x279658aEBF8D15901f9e4362a97AeB4da54942c6
-USDC:                     0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
+Tenbinium (PMM V2):       0x279658aEBF8D15901f9e4362a97AeB4da54942c6
 ```
-
-Key deployment transactions:
-
-```text
-TBN deploy:     0x2d4f4c3c6c8b33883ca04f478e46c022596f5a386cd1d3bae492a6813ddfe7ed
-PMM deploy:     0x491bb8b649c1219441bafe9c84ddcb7cc80979dbc4916177166fa60e5c35dc80
-setMinter:      0xc4bdf0940224506ab1e5d04f460e11bd91d3b65854ccb0c590f906cc1e3e384f
-freezeMinter:   0xf5a76cd2d19f8295b46675b20c0bdc1b594af76ca440ceb78483a10911467ff0
-PMM renounce:   0x09c96be536f5e903b60bbc559a689eea13f3de246e3263051c184cdaef701a7f
-TBN renounce:   0xe013f0c4d5458d5405ab4f3c3138c72707f8d537af3ce4f188ee04e6b64e1ad3
-```
-
-The deployed TBN minter is the PMM V2 contract. The minter has been frozen and ownership has been renounced for both core contracts.
 
 ## Development
 
@@ -50,77 +110,16 @@ Compile contracts:
 npm run compile
 ```
 
-Run the Hardhat test suite:
+Run the Foundry test suite:
 
 ```bash
 npm test
 ```
 
-Run the Foundry test suite:
-
-```bash
-npm run test:foundry
-```
-
-Run all configured PMM V2 tests:
-
-```bash
-npm run test:all
-```
-
-## Deployment And Status Checks
-
-Deploy PMM V2 to Ethereum mainnet:
-
-```bash
-npm run deploy:v2:mainnet
-```
-
-Common deployment environment variables:
-
-```bash
-MAINNET_RPC_URL=https://...
-PRIVATE_KEY=0x...
-PAYMENT_TOKEN=0x...
-INITIAL_OWNER=0x...
-FREEZE_TBN_MINTER=true
-RENOUNCE_PMM_OWNERSHIP=true
-RENOUNCE_TBN_OWNERSHIP=true
-```
-
-Check a deployment:
-
-```bash
-PMM_V2_ADDRESS=0x... TBN_ADDRESS=0x... PAYMENT_TOKEN=0x... npm run check:v2 -- --network mainnet
-```
-
-## Helper Script
-
-`pmmV2-helper.py` provides basic read and transaction helpers for PMM V2.
-
-```bash
-PMM_V2_ADDRESS=0x...
-TBN_ADDRESS=0x...
-MAINNET_RPC_URL=https://...
-PRIVATE_KEY=0x... # only required for transactions
-```
-
-Example commands:
-
-```bash
-python pmmV2-helper.py health
-python pmmV2-helper.py agent-id https://agent.example
-python pmmV2-helper.py validate 15 20
-python pmmV2-helper.py create https://agent.example 15 20
-python pmmV2-helper.py relocate <agent_id_hash> 15 20 20 21
-python pmmV2-helper.py claim-tbn
-python pmmV2-helper.py redeem-fee-vault
-```
+The tests are in `test/foundry/`, with one file for each part of the protocol: neurons, rewards, questions, memory and the aggregated probability.
 
 ## License
 
-The PMM V2 core contracts are licensed under the Business Source License 1.1. The license permits downstream applications, frontends, dashboards, agents, bots, integrations, APIs, SDKs, analytics, and similar services to build on top of Bittenbin's official deployed PMM V2 protocol contracts by default.
-
-The BUSL restriction applies to deploying, operating, or making available a separate or competing production instance of the PMM V2 core protocol before the Change Date. See [licenses/BUSL_LICENSE](licenses/BUSL_LICENSE).
+The contracts in `src/` are licensed under the Business Source License 1.1.  See [licenses/BUSL_LICENSE](licenses/BUSL_LICENSE).
 
 Files that remain MIT-licensed are covered by [licenses/MIT_LICENSE](licenses/MIT_LICENSE).

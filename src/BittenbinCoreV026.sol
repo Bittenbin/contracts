@@ -19,8 +19,9 @@ import {Tenbinium} from "./Tenbinium.sol";
  *         begins with x, then y, then C, each written in binary without leading zeros. The neuron stays
  *         there forever, stands for the probability (x / C)^2, and mints TBN on a schedule that depends
  *         only on the number of neurons created before it.
- *         A customer asks a question with a fee in TBN and a deadline. Until the deadline, a wallet can
- *         store the question under any of its neurons, each of whose memory holds at most C questions. The
+ *         A customer asks a question for one of four durations, each with a fixed fee in TBN. Until the deadline, a wallet can
+ *         store the question under any of its neurons, each of whose memory holds one question for every bit
+ *         of its proof. The
  *         answer is the direction of the sum q of the vectors (x, y) that stored it, and the fee is shared
  *         among them
  *         by their contribution to the length of q.
@@ -29,12 +30,10 @@ import {Tenbinium} from "./Tenbinium.sol";
 contract BittenbinCoreV026 {
     using SafeERC20 for IERC20;
 
-    uint256 public constant NEURONS_PER_ERA = 100_000;
-    uint256 public constant RAMP_ERAS = 13;
-    uint256 public constant NEURONS_PER_HALVING = 50_000;
-    uint256 public constant MIN_WINDOW = 1 hours;
-    uint256 public constant BASE_RATE = 1 ether;
-    uint256 public constant QUESTIONS_PER_HALVING = 1_000_000;
+    uint256 public constant BASE_REWARD = 2 ether;
+    uint256 public constant BASE_NEURONS = 9_000_000;
+    uint256 public constant HALVING_START = 10_000_000;
+    uint256 public constant NEURONS_PER_HALVING = 2_000_000;
     uint256 public constant MAX_OPINION_LENGTH = 280;
     uint256 internal constant ONE = 1 ether;
 
@@ -53,6 +52,8 @@ contract BittenbinCoreV026 {
     struct Neuron {
         address wallet;
         uint64 c;
+        /// @dev Bits of x, y and C together, which is the length of the proof and the size of the memory.
+        uint8 bits;
     }
 
     struct Question {
@@ -75,7 +76,7 @@ contract BittenbinCoreV026 {
     error PointUsed();
     error InvalidProof();
     error EmptyQuestion();
-    error WindowTooShort();
+    error InvalidDuration();
     error NoQuestion();
     error QuestionClosed();
     error QuestionOpen();
@@ -105,7 +106,7 @@ contract BittenbinCoreV026 {
         if (neurons[point].wallet != address(0)) revert PointUsed();
         if (uint256(proofHash(msg.sender, x, y, c, nonce)) >> (256 - bits) != prefix) revert InvalidProof();
 
-        neurons[point] = Neuron({wallet: msg.sender, c: uint64(c)});
+        neurons[point] = Neuron({wallet: msg.sender, c: uint64(c), bits: uint8(bits)});
 
         reward = rewardAt(neuronCount);
         neuronCount += 1;
@@ -114,13 +115,13 @@ contract BittenbinCoreV026 {
         if (reward > 0) tbn.mint(msg.sender, reward);
     }
 
-    /// @notice Asks a question that neurons can store until the deadline, which must be at least an hour
-    ///         away and sets the fee, for a fee in TBN that this
-    ///         contract holds until then. The caller must have approved the fee.
-    function ask(string calldata text, uint256 deadline) external returns (uint256 questionId) {
+    /// @notice Asks a question that neurons can store for `duration` seconds, which must be one of the
+    ///         four durations that `feeOf` accepts. This contract holds the fee in TBN until the
+    ///         deadline, and the caller must have approved it.
+    function ask(string calldata text, uint256 duration) external returns (uint256 questionId) {
         if (bytes(text).length == 0) revert EmptyQuestion();
-        if (deadline < block.timestamp + MIN_WINDOW || deadline > type(uint64).max) revert WindowTooShort();
-        uint256 fee = feeAt(questionCount, deadline - block.timestamp);
+        uint256 fee = feeOf(duration);
+        uint256 deadline = block.timestamp + duration;
 
         questionId = ++questionCount;
         questions[questionId] =
@@ -132,7 +133,7 @@ contract BittenbinCoreV026 {
 
     /// @notice Stores an open question under the caller's neuron at (x, y), with an optional opinion.
     ///         A wallet can store a question under any number of its neurons, each of them once, and a
-    ///         neuron's memory holds at most C questions.
+    ///         neuron's memory holds as many questions as its proof has bits.
     function store(uint256 questionId, uint256 x, uint256 y, string calldata opinion) external {
         Question storage question = questions[questionId];
         if (question.customer == address(0)) revert NoQuestion();
@@ -144,7 +145,7 @@ contract BittenbinCoreV026 {
         if (neuron.wallet != msg.sender) revert NotNeuronOwner();
 
         uint256[] storage stored = _memory[point];
-        if (stored.length >= neuron.c) revert MemoryFull();
+        if (stored.length >= neuron.bits) revert MemoryFull();
 
         if (statusOf[questionId][point] != Status.None) revert AlreadyStored();
 
@@ -207,23 +208,15 @@ contract BittenbinCoreV026 {
         return Math.mulDiv(question.fee, x * qx + y * qy, qx * qx + qy * qy);
     }
 
-    /// @notice What a question open for `duration` seconds costs right now.
-    function feeOf(uint256 duration) external view returns (uint256) {
-        return feeAt(questionCount, duration);
-    }
-
-    /// @notice What a question open for `duration` seconds costs after `count` earlier questions.
-    ///         It is the rate times the square root of the duration in hours, so one hour costs the
-    ///         rate, four hours twice the rate and nine hours three times the rate.
-    function feeAt(uint256 count, uint256 duration) public pure returns (uint256) {
-        return Math.mulDiv(rateAt(count), Math.sqrt(duration * 1e36 / 1 hours), ONE);
-    }
-
-    /// @notice The fee of a one-hour question after `count` earlier questions. It starts at
-    ///         1 TBN and halves with every million questions.
-    function rateAt(uint256 count) public pure returns (uint256) {
-        uint256 halvings = count / QUESTIONS_PER_HALVING;
-        return halvings < 64 ? BASE_RATE >> halvings : 0;
+    /// @notice What a question open for `duration` seconds costs. A question stays open for one hour,
+    ///         four hours, one day or seven days, for 1, 2, 5 or 13 TBN, which is approximately the
+    ///         square root of the duration in hours.
+    function feeOf(uint256 duration) public pure returns (uint256) {
+        if (duration == 1 hours) return 1 ether;
+        if (duration == 4 hours) return 2 ether;
+        if (duration == 1 days) return 5 ether;
+        if (duration == 7 days) return 13 ether;
+        revert InvalidDuration();
     }
 
     function isUsed(uint256 x, uint256 y) external view returns (bool) {
@@ -238,7 +231,7 @@ contract BittenbinCoreV026 {
     /// @notice How many more questions the neuron at (x, y) can store.
     function memoryLeft(uint256 x, uint256 y) external view returns (uint256) {
         uint256 point = _point(x, y);
-        return neurons[point].c - _memory[point].length;
+        return neurons[point].bits - _memory[point].length;
     }
 
     /// @notice Reward of the next neuron.
@@ -270,22 +263,21 @@ contract BittenbinCoreV026 {
         return uint256(proofHash(wallet, x, y, c, nonce)) >> (256 - bits) == prefix;
     }
 
-    /// @notice TBN reward of a neuron created after `count` earlier neurons. Per 100,000 neurons, it is
-    ///         1, 4, 9 and 16 TBN, holds at 25 TBN for six eras, and falls back through 16, 9 and 4 TBN,
-    ///         which emits 20,900,000 TBN over 1,300,000 neurons. It then drops to 1 TBN and halves with
-    ///         every 50,000 neurons, which emits the last 100,000 TBN.
+    /// @notice TBN reward of a neuron created after `count` earlier neurons. It is 2 TBN for each of the
+    ///         first 9,000,000 neurons, which emits 18,000,000 TBN, and 1 TBN for the million after that.
+    ///         From 10,000,000 neurons onwards it halves with every 2,000,000 neurons, starting at
+    ///         0.5 TBN, which emits the last 2,000,000 TBN.
     function rewardAt(uint256 count) public pure returns (uint256) {
-        uint256 era = count / NEURONS_PER_ERA;
+        if (count < BASE_NEURONS) return BASE_REWARD;
+        if (count < HALVING_START) return BASE_REWARD / 2;
 
-        if (era < 5) return (era + 1) * (era + 1) * ONE;
-        if (era < 10) return 25 * ONE;
-        if (era < RAMP_ERAS) return (14 - era) * (14 - era) * ONE;
-
-        uint256 halvings = (count - RAMP_ERAS * NEURONS_PER_ERA) / NEURONS_PER_HALVING;
-        return halvings < 64 ? ONE >> halvings : 0;
+        uint256 halvings = (count - HALVING_START) / NEURONS_PER_HALVING + 2;
+        return halvings < 64 ? BASE_REWARD >> halvings : 0;
     }
 
+    /// @dev Coordinates beyond 64 bits are rejected so that no two pairs (x, y) share a key.
     function _point(uint256 x, uint256 y) internal pure returns (uint256) {
+        if (x > type(uint64).max || y > type(uint64).max) revert InvalidPoint();
         return (x << 128) | y;
     }
 }
